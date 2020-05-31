@@ -36,12 +36,13 @@
 
 OC::App available_apps[] = {
   DECLARE_APP('H','S', "Hemisphere", HEMISPHERE),
-  DECLARE_APP('M','I', "Captain MIDI", MIDI),
+  //DECLARE_APP('M','I', "Captain MIDI", MIDI),
   DECLARE_APP('D','2', "Darkest Timeline", TheDarkestTimeline),
   DECLARE_APP('E','N', "Enigma", EnigmaTMWS),
   DECLARE_APP('N','N', "Neural Net", NeuralNetwork),
   DECLARE_APP('S','C', "Scale Editor", SCALEEDITOR),
   DECLARE_APP('W','A', "Waveform Editor", WaveformEditor),
+  //DECLARE_APP('R','F', "References", REFS),  // commenting captain MIDI and adding this seems to work
   DECLARE_APP('P','O', "Pong", PONGGAME),
   DECLARE_APP('B','R', "Backup / Restore", Backup),
   DECLARE_APP('S','E', "Setup / About", Settings),
