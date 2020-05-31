@@ -50,14 +50,32 @@ public:
 
     void Controller() {
 
-        // Reset input
+        // CV input 0 (Step count)
+        if(DetentedIn(0) > 0)   // Is CV outside a small deadzone around 0 volts?
+        {
+          int num = ProportionCV(In(0), HEM_STAIRS_MAX_STEPS);
+          num = constrain(num, 0, HEM_STAIRS_MAX_STEPS-1);
+          steps = num;  // Just overwrite?  (TODO: Preferable to modulate a set point?)
+        }
+  
+        // CV input 1 (Position control)
+        if(DetentedIn(1) > 0)   // Is CV outside a small deadzone around 0 volts?
+        {
+          // TODO: Handle up/down mode by (steps/2 - 2)?
+          int num = ProportionCV(In(1), steps);
+          num = constrain(num, 0, steps);
+          curr_step = num;  // Just overwrite?  (TODO: Preferable to modulate a set point?)
+        }
+
+
+        // Digital Input 1: Reset pulse
         if (Clock(1)) {
             curr_step = (dir != 2) ? 0 : steps;  // Go to 0th or last step depending on direction
-            ClockOut(1);  // BOC output
+            ClockOut(1);  // BOC pulse output
         }
-                // Clock input
-        else if (Clock(0))// StartADCLag();   // TODO: Might help reset behavior, so check this
-        //if (EndOfADCLag()) {
+        
+        // Digital Input 2: Clock pulse
+        if (Clock(0))
         {
             if(reverse == 0)
             {
@@ -67,7 +85,8 @@ public:
                 if(dir == 0)  // up
                 {
                   curr_step = 0;
-                  ClockOut(1);  // BOC output
+                  // In up mode, BOC should trigger when looping back to step 0
+                  ClockOut(1);
                 }
                 else  // up/down
                 {
@@ -85,19 +104,34 @@ public:
                 // Total steps have been manually changed to a number below the current position, so clamp
                 curr_step = steps;
               }
-              else if(--curr_step < 0)
+              else 
               {
-                if(dir == 2) // down
-                {
-                  curr_step = steps;
-                }
-                else  // up/down
-                {
-                  reverse = 0;
-                  curr_step = (steps > 0 ? 1 : 0);// constrain(1, 0, steps);  // Go to 1 unless too few steps
-                }
+                --curr_step;
 
-                ClockOut(1);  // BOC output (for both down and up/down)
+                // If in up/down mode, BOC should trigger when descending and arriving at step 0
+                if(curr_step == 0 && dir == 1)
+                {
+                  ClockOut(1);
+                }
+                
+                if(curr_step < 0)
+                {
+                
+                  if(dir == 2) // down
+                  {
+                    curr_step = steps;
+                    // In down mode, BOC puse should trigger when looping back to the end step
+                    ClockOut(1);
+                  }
+                  else  // up/down
+                  {
+                    reverse = 0;
+                    curr_step = (steps > 0 ? 1 : 0);  // Go to 1 unless too few steps
+                  }
+
+                  
+                }
+                
               }
             }
 
@@ -181,21 +215,21 @@ protected:
     }
 
 private:
-    int steps;     // Number of steps, starting at 0v and ending at 5v (if > 0 steps)
-    int dir;       // 0 = up, 1 = up/down, 2 = down
-    int rand;      // 0 = no cv out randomization, 1 = random offsets are applied to each step
+    int steps;      // Number of steps, starting at 0v and ending at 5v (if > 0 steps)
+    int dir;        // 0 = up, 1 = up/down, 2 = down
+    int rand;       // 0 = no cv out randomization, 1 = random offsets are applied to each step
     int curr_step;  // Current step
-    int reverse;  // current movement direction
-    int cv_out;   // CV currently being output (track for display)
+    int reverse;    // current movement direction
+    int cv_out;     // CV currently being output (track for display)
 
-    int cv_rand;  // track last computed random offset for cv
-    int cursor;    // 0 = steps, 1 = direction, 2 = random
+    int cv_rand;    // track last computed random offset for cv
+    int cursor;     // 0 = steps, 1 = direction, 2 = random
 
     void DrawDisplay()
     {
       gfxPrint(1, 15, "Steps: "); gfxPrint(steps);
       gfxPrint(1, 25, "Dir: "); gfxPrint((dir == 0 ? "up" : (dir == 1 ? "up/dn" : "down")));
-      //gfxPrint(1, 35, ": "); gfxPrint(rand);
+
       if(!rand)
       {
         gfxPrint(1, 35, "Rand: Off");
@@ -210,7 +244,19 @@ private:
 
 
       // Cursor
-      gfxCursor(1, 23 + (cursor * 10), 62);  // This is a flashing underline cursor for the whole row when used like this
+      //gfxCursor(1, 23 + (cursor * 10), 62);  // This is a flashing underline cursor for the whole row when used like this
+      if(cursor == 0)
+      {
+        gfxCursor(42, 23 + (cursor * 10), 20);  // flashing underline on the number
+      }
+      else if(cursor == 1)
+      {
+        gfxCursor(29, 23 + (cursor * 10), 33);  // flashing underline on the number
+      }
+      else
+      {
+        gfxCursor(1, 23 + (cursor * 10), 61);  // flashing underline on the number
+      }
     }
     
     //void DrawDisplay() {
@@ -266,179 +312,4 @@ uint32_t Stairs_OnDataRequest(bool hemisphere) {
 void Stairs_OnDataReceive(bool hemisphere, uint32_t data) {
     Stairs_instance[hemisphere].OnDataReceive(data);
 }
-/*
-#define HEM_STAIRS_MAX_STEPS 32
 
-class Stairs : public HemisphereApplet {
-public:
-
-    const char* applet_name() {
-        return "Stairs";
-    }
-
-    void Start() {
-        steps = 1;
-        dir = 0;
-        rand = 0;
-        cursor = 0;
-        curr_step = 0;
-        cv_out = 0;
-    }
-
-  void Controller() {
-        
-        // Reset input
-        if (Clock(1)) {
-            curr_step = 0;
-            ClockOut(1);  // BOC output
-        }
-
-        //  TODO: Handle live changes to settings maybe this way
-        //int transpose = 0;
-        //if (DetentedIn(0)) {
-          //  transpose = In(0) / 128; // 128 ADC steps per semitone
-        //}
-        //int play_note = note[curr_step] + 60 + transpose;
-        //play_note = constrain(play_note, 0, 127);
-        
-
-
-        // Clock input
-        if (Clock(0))// StartADCLag();   // TODO: Might help reset behavior, so check this
-        //if (EndOfADCLag()) {
-        {
-            //Advance(curr_step);
-            
-            if(++curr_step >= steps)
-            {
-              curr_step = 0;
-              ClockOut(1);  // BOC output
-            }
-            // play = 1;
-        }
-
-        // TODO: Vary for up+down (in case of up/dn mode, a bit should signify up or down states)
-
-        // Fixed-point maths
-        cv_out = Proportion(curr_step, steps, HEMISPHERE_MAX_CV);  // This appears to be 5v from code, TODO: Confirm
-        Out(0, cv_out);
-
-    }
-
-    void View() {
-        gfxHeader(applet_name());
-
-        DrawSelector();
-        
-        //DrawSkewedWaveform();
-        //DrawRateIndicator();
-        //DrawWaveformPosition();
-    }
-
-    void OnButtonPress() {
-        cursor = constrain( cursor++, 0 , 2);
-    }
-
-    void OnEncoderMove(int direction) {
-        if (cursor == 0) {
-            steps = constrain( steps += direction, 0, HEM_STAIRS_MAX_STEPS-1);  // constrain includes max
-        }else if (cursor == 1) {
-            dir = constrain( dir += direction, 0, 2);
-        } else {
-            rand = 1-rand;
-        }
-    }
-
-    uint32_t OnDataRequest() {
-        uint32_t data = 0;
-        Pack(data, PackLocation {0, 5}, steps);
-        Pack(data, PackLocation {5, 2}, dir);
-        Pack(data, PackLocation {7, 1}, rand);
-        return data;
-    }
-
-    void OnDataReceive(uint32_t data) {
-        steps = UnPack(data, PackLocation {0, 5});
-        dir = UnPack(data, PackLocation {5, 2});
-        rand = UnPack(data, PackLocation {7, 1});
-         //skew = Unpack(data, PackLocation {0,8});
-        //rate = Unpack(data, PackLocation {8,8});
-    }
-
-protected:
-    void SetHelp() {
-    //                                    "------------------" <-- Size Guide      
-        help[HEMISPHERE_HELP_DIGITALS] =  "1=Clock 2=Reset";
-        help[HEMISPHERE_HELP_CVS] =       "1=Steps 2=Position";
-        help[HEMISPHERE_HELP_OUTS] =      "A=CV B=EOC_Pulse";
-        help[HEMISPHERE_HELP_ENCODER] =   "Steps/Dir/Rand";
-    //                                    "------------------" <-- Size Guide          
-    }
-
-private:
-    int steps;     // Number of steps, starting at 0v and ending at 5v (if > 0 steps)
-    int dir;       // 0 = up, 1 = up/down, 2 = down
-    int rand;      // 0 = no cv out randomization, 1 = random offsets are applied to each step
-
-    int curr_step;  // Current step
-    int cv_out;
-
-    void DrawSelector()
-    {
-      gfxPrint(1, 15, "Steps:"); gfxPrint(9, 15, steps);
-      gfxPrint(1, 25, "Dir:"); gfxPrint(9, 25, (dir == 0 ? "up" : (dir == 1 ? "up/down" : "down")));
-      gfxPrint(3, 35, "Rand:"); gfxPrint(9, 35, rand);
-      
-      gfxPrint(3, 45, "pos="); gfxPrint(10, 45, curr_step);
-      gfxBitmap(1, 55, 8, CV_ICON); gfxPos(12, 55); gfxPrintVoltage(cv_out);
-
-
-      // Cursor
-
-      gfxCursor(1, 23 + (cursor * 10), 62);
-    }
-};
-
-
-////////////////////////////////////////////////////////////////////////////////
-//// Hemisphere Applet Functions
-///
-///  Once you run the find-and-replace to make these refer to Stairs,
-///  it's usually not necessary to do anything with these functions. You
-///  should prefer to handle things in the HemisphereApplet child class
-///  above.
-////////////////////////////////////////////////////////////////////////////////
-Stairs Stairs_instance[2];
-
-void Stairs_Start(bool hemisphere) {
-    Stairs_instance[hemisphere].BaseStart(hemisphere);
-}
-
-void Stairs_Controller(bool hemisphere, bool forwarding) {
-    Stairs_instance[hemisphere].BaseController(forwarding);
-}
-
-void Stairs_View(bool hemisphere) {
-    Stairs_instance[hemisphere].BaseView();
-}
-
-void Stairs_OnButtonPress(bool hemisphere) {
-    Stairs_instance[hemisphere].OnButtonPress();
-}
-
-void Stairs_OnEncoderMove(bool hemisphere, int direction) {
-    Stairs_instance[hemisphere].OnEncoderMove(direction);
-}
-
-void Stairs_ToggleHelpScreen(bool hemisphere) {
-    Stairs_instance[hemisphere].HelpScreen();
-}
-
-uint32_t Stairs_OnDataRequest(bool hemisphere) {
-    return Stairs_instance[hemisphere].OnDataRequest();
-}
-
-void Stairs_OnDataReceive(bool hemisphere, uint32_t data) {
-    Stairs_instance[hemisphere].OnDataReceive(data);
-}
-*/
