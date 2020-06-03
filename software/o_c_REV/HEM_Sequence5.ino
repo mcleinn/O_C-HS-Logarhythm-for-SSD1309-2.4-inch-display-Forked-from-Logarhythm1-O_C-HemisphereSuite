@@ -20,15 +20,20 @@
 
 #include "HSMIDI.h"
 
+
+// APD Modified
+#define SEQ5_STEPS 5
+// NOTE: Not claiming >5 when saving, or restoring when loading!
+
 class Sequence5 : public HemisphereApplet {
 public:
 
     const char* applet_name() { // Maximum 10 characters
-        return "Sequence5";
+        return "SequenceX";
     }
 
     void Start() {
-        for (int s = 0; s < 5; s++) note[s] = random(0, 30);
+        for (int s = 0; s < SEQ5_STEPS; s++) note[s] = random(0, 30);
         play = 1;
     }
 
@@ -47,8 +52,10 @@ public:
         play_note = constrain(play_note, 0, 127);
 
         if (Clock(0)) StartADCLag();
-
-        if (EndOfADCLag()) {
+        
+        
+        if (EndOfADCLag() && !Gate(1))  // Logarhythm: Don't clock if currently within a reset pulse, so overlapping clock+reset pulses go to step 0 instead of 1 and reset can "hold"
+        {
             Advance(step);
             if (step == 0) ClockOut(1);
             play = 1;
@@ -66,7 +73,7 @@ public:
     }
 
     void OnButtonPress() {
-        if (++cursor == 5) cursor = 0;
+        if (++cursor == SEQ5_STEPS) cursor = 0;
     }
 
     void OnEncoderMove(int direction) {
@@ -111,21 +118,23 @@ protected:
 private:
     int cursor = 0;
     char muted = 0; // Bitfield for muted steps; ((muted >> step) & 1) means muted
-    int note[5]; // Sequence value (0 - 30)
+    int note[SEQ5_STEPS]; // Sequence value (0 - 30)
     int step = 0; // Current sequencer step
     bool play; // Play the note
 
     void Advance(int starting_point) {
-        if (++step == 5) step = 0;
+        if (++step == SEQ5_STEPS) step = 0;
         // If all the steps have been muted, stay where we were
         if (step_is_muted(step) && step != starting_point) Advance(starting_point);
     }
 
     void DrawPanel() {
         // Sliders
-        for (int s = 0; s < 5; s++)
+        for (int s = 0; s < SEQ5_STEPS; s++)
         {
             int x = 6 + (12 * s);
+            //int x = 6 + (7 * s); // APD:  narrower to fit more
+            
             if (!step_is_muted(s)) {
                 gfxLine(x, 25, x, 63);
 
@@ -133,10 +142,28 @@ private:
                 if (s == cursor) {
                     gfxLine(x + 1, 25, x + 1, 63);
                     gfxRect(x - 4, BottomAlign(note[s]), 9, 3);
-                } else gfxFrame(x - 4, BottomAlign(note[s]), 9, 3);
-
+                    //gfxRect(x - 2, BottomAlign(note[s]), 5, 3);  // APD
+                } else 
+                {
+                  gfxFrame(x - 4, BottomAlign(note[s]), 9, 3);
+                  //gfxFrame(x - 2, BottomAlign(note[s]), 5, 3);  // APD
+                }
+                
                 // When on this step, there's an indicator circle
-                if (s == step) {gfxCircle(x, 20, 3);}
+                if (s == step) 
+                {
+
+                  
+                  gfxCircle(x, 20, 3);  //Original
+
+                  // APD
+                  //int play_note = note[step];// + 60 + transpose;
+
+                  //gfxPrint(10, 15, "Scale ");
+                  //gfxPrint(cursor < 12 ? 1 : 2);
+                  //gfxPrint(x, 20, play_note);
+                  
+                }
             } else if (s == cursor) {
                 gfxLine(x, 25, x, 63);
                 gfxLine(x + 1, 25, x + 1, 63);
