@@ -50,16 +50,18 @@ public:
 
     void Controller() {
 
+        int curr_step_pv = curr_step;  // Detect if an input changes the step this update
+        
         // CV input 0 (Step count)
-        if(DetentedIn(0) > 0)   // Is CV outside a small deadzone around 0 volts?
+        if(DetentedIn(0) > 0)   // Is CV greater than 0v by a deadzone amount?
         {
-          int num = ProportionCV(In(0), HEM_STAIRS_MAX_STEPS);
-          num = constrain(num, 0, HEM_STAIRS_MAX_STEPS-1);
-          steps = num;  // Just overwrite?  (TODO: Preferable to modulate a set point?)
+          int num = ProportionCV(In(0), HEM_STAIRS_MAX_STEPS);  // Use this range so it's easy to reach max-1 just before 5v
+          num = constrain(num, 0, HEM_STAIRS_MAX_STEPS-1);      // Constrain to max-1
+          steps = num;  // Just overwrite user values
         }
   
         // CV input 1 (Position control)
-        if(DetentedIn(1) > 0)   // Is CV outside a small deadzone around 0 volts?
+        if(DetentedIn(1) > 0)   // Is CV greater than 0v by a deadzone amount?
         {
           // TODO: Handle up/down mode by (steps/2 - 2)?
           int num = ProportionCV(In(1), steps);
@@ -71,15 +73,16 @@ public:
         // Digital Input 1: Reset pulse
         if (Clock(1)) {
             curr_step = (dir != 2) ? 0 : steps;  // Go to 0th or last step depending on direction
+            reverse = (dir != 2) ? 0 : 1;  // Reset reverse (really just for up/down mode)
             ClockOut(1);  // BOC pulse output
         }
         
         // Digital Input 2: Clock pulse
-        if (Clock(0))
+        if (Clock(0) && !Gate(1))  // Don't clock if currently within a reset pulse, so overlapping clock+reset pulses go to step 0 instead of 1 and reset can "hold"
         {
             if(reverse == 0)
             {
-              // Forwards
+              // Forward direction
               if(++curr_step > steps)
               {
                 if(dir == 0)  // up
@@ -98,7 +101,7 @@ public:
             }
             else
             {
-              // Reverse
+              // Reverse direction
               if(curr_step > steps)
               {
                 // Total steps have been manually changed to a number below the current position, so clamp
@@ -116,7 +119,6 @@ public:
                 
                 if(curr_step < 0)
                 {
-                
                   if(dir == 2) // down
                   {
                     curr_step = steps;
@@ -127,14 +129,17 @@ public:
                   {
                     reverse = 0;
                     curr_step = (steps > 0 ? 1 : 0);  // Go to 1 unless too few steps
-                  }
-
-                  
-                }
-                
+                  }                  
+                }                
               }
             }
+        }
 
+
+        // If the step has changed, update anything else that needs to
+        // Note: Should BOC pulses be moved here to trigger via CV changing current step?
+        if(curr_step != curr_step_pv)
+        {
             // Compute a new random offset if required
             if(rand)
             {
@@ -143,7 +148,9 @@ public:
               // Randomly choose offset direction
               cv_rand *= (random(0,100) > 50) ? 1 : -1;
             }
+          
         }
+        
 
         // Steps will either be counting up or down, but it will always be an index into the cv range
         cv_out = Proportion(curr_step, steps, HEMISPHERE_MAX_CV);  // 0-5v, scaled with fixed-point
