@@ -57,6 +57,7 @@
     DECLARE_APPLET( 46, 0x08, Squanch), \
     DECLARE_APPLET( 57, 0x01, Stairs), \
     DECLARE_APPLET(  3, 0x10, Switch), \
+    DECLARE_APPLET( 58, 0x01, TB_3PO), \
     DECLARE_APPLET( 13, 0x40, TLNeuron), \
     DECLARE_APPLET( 37, 0x40, Trending), \
     DECLARE_APPLET( 11, 0x06, TrigSeq), \
