@@ -32,6 +32,10 @@
 class Stairs : public HemisphereApplet {
 public:
 
+    // Icons made with http://beigemaze.com/bitmap8x8.html  (Thanks for making this public!)
+    const uint8_t STAIRS_ICON[8] = {0x00,0x20,0x20,0x38,0x08,0x0e,0x02,0x02};  // Some stairs going up
+    const uint8_t RANDOM_ICON[8] = {0x7c,0x82,0x8a,0x82,0xa2,0x82,0x7c,0x00};  // A die showing '2'
+
     const char* applet_name() {
         return "Stairs";
     }
@@ -42,9 +46,13 @@ public:
         rand = 0;
         cursor = 0;
         curr_step = 0;
+        
+        step_cv_lock = 0;
+        reset_held_step = 0;
+        reset_gate = 0;
+        
         reverse = 0;
         cv_out = 0;
-
         cv_rand = 0;
     }
 
@@ -61,24 +69,28 @@ public:
         }
   
         // CV input 1 (Position control)
+        //step_cv_lock = 0;  // Track if cv is controlling the step count, for display
         if(DetentedIn(1) > 0)   // Is CV greater than 0v by a deadzone amount?
         {
           // TODO: Handle up/down mode by (steps/2 - 2)?
           int num = ProportionCV(In(1), steps);
           num = constrain(num, 0, steps);
           curr_step = num;  // Just overwrite?  (TODO: Preferable to modulate a set point?)
+          step_cv_lock = 1;  // Display this since it locks out user input
         }
 
 
         // Digital Input 1: Reset pulse
+        reset_gate = Gate(1);  // For display
         if (Clock(1)) {
+            reset_held_step = curr_step;  // For display
             curr_step = (dir != 2) ? 0 : steps;  // Go to 0th or last step depending on direction
             reverse = (dir != 2) ? 0 : 1;  // Reset reverse (really just for up/down mode)
             ClockOut(1);  // BOC pulse output
         }
         
         // Digital Input 2: Clock pulse
-        if (Clock(0) && !Gate(1))  // Don't clock if currently within a reset pulse, so overlapping clock+reset pulses go to step 0 instead of 1 and reset can "hold"
+        if (Clock(0) && !reset_gate)  // Don't clock if currently within a reset pulse, so overlapping clock+reset pulses go to step 0 instead of 1 and reset can "hold"
         {
             if(reverse == 0)
             {
@@ -152,14 +164,16 @@ public:
         }
         
 
-        // Steps will either be counting up or down, but it will always be an index into the cv range
-        cv_out = Proportion(curr_step, steps, HEMISPHERE_MAX_CV);  // 0-5v, scaled with fixed-point
-        if(rand && (curr_step != 0 && curr_step != steps))  // Don't randomize 1st and last steps so it always hits 0 and 5v?
+        if(!reset_gate)  // Don't update cv if reset gate is on-- this gives sample & hold of the last value until reset is released
         {
-          cv_out += cv_rand;
-          cv_out = constrain(cv_out, 0, HEMISPHERE_MAX_CV);  // (Not actually necessary if not randomizing start/end)        
+          // Steps will either be counting up or down, but it will always be an index into the cv range
+          cv_out = Proportion(curr_step, steps, HEMISPHERE_MAX_CV);  // 0-5v, scaled with fixed-point
+          if(rand && (curr_step != 0 && curr_step != steps))  // Don't randomize 1st and last steps so it always hits 0 and 5v?
+          {
+            cv_out += cv_rand;
+            cv_out = constrain(cv_out, 0, HEMISPHERE_MAX_CV);  // (Not actually necessary if not randomizing start/end)        
+          }
         }
-
         Out(0, cv_out);
     }
 
@@ -230,39 +244,85 @@ private:
     int cv_out;     // CV currently being output (track for display)
 
     int cv_rand;    // track last computed random offset for cv
+    int step_cv_lock;  // 1 if cv is controlling the current step (show on display)
+    int reset_gate;  // Track if currently held in reset (show an icon)
+    int reset_held_step;  // Step when reset was initially asserted (for display)
+    
     int cursor;     // 0 = steps, 1 = direction, 2 = random
+
+    
 
     void DrawDisplay()
     {
-      gfxPrint(1, 15, "Steps: "); gfxPrint(steps);
-      gfxPrint(1, 25, "Dir: "); gfxPrint((dir == 0 ? "up" : (dir == 1 ? "up/dn" : "down")));
+      //gfxPrint(1, 15, "Stp:"); gfxPrint(steps);
+      //LOOP_ICON
+      gfxBitmap(1, 15, 8, STAIRS_ICON); gfxPrint(16,15,steps);
+      //int y = 15;
+      //gfxBitmap(1, y, 8, STAIRS_ICON);
+      //gfxPrint(9 + pad(100,curr_step), y, curr_step); gfxPrint("/");gfxPrint(steps);  // Pad x enough to hold width steady  // Tested: Makes it hard to interact w/max steps visually
+      //if(reset_gate) gfxBitmap(56, 15, 8, RESET_ICON);
+      
+      //if(step_cv_lock) gfxBitmap(50, 15, 8, CV_ICON);
+      //gfxBitmap(50, 15, 8, CV_ICON);  // Works if always shown
 
+      // Test dir icon on same line as steps
+      gfxBitmap(36, 15, 8, (dir==0 ? UP_BTN_ICON : ( dir==1 ? UP_DOWN_ICON : DOWN_BTN_ICON )));
+      
+      
+      // direction on its own line:
+      //gfxBitmap(1, 25, 8, LOOP_ICON);
+      //gfxBitmap(16, 25, 8, (dir==0 ? UP_BTN_ICON : ( dir==1 ? UP_DOWN_ICON : DOWN_BTN_ICON )));
+      
+
+      // Just to see this:
+      //gfxBitmap(55, 25, 8, UP_DOWN_ICON);
+
+      gfxBitmap(1, 35, 8, RANDOM_ICON);
       if(!rand)
       {
-        gfxPrint(1, 35, "Rand: Off");
+        gfxPrint(16,35, "off");
       }
       else
       {
-        gfxPrint(1, 35, "r"); gfxPos(12, 35); gfxPrintVoltage(cv_rand);
+        gfxPrint(16,35, "rnd");
+        //gfxPrint(1, 35, "r"); gfxPos(12, 35); gfxPrintVoltage(cv_rand);
+        //gfxInvert(16, 35, ProportionCV(cv_rand, 40), 9);  // will this flip on its own?
+        //gfxPos(16, 35); gfxPrintVoltage(cv_rand);  // Numeric readout for testing
       }
       
-      gfxPrint(1 + pad(100,curr_step), 45, curr_step); gfxPrint("/");gfxPrint(steps);  // Pad x enough to hold width steady
-      gfxBitmap(1, 55, 8, CV_ICON); gfxPos(12, 55); gfxPrintVoltage(cv_out);
+      //if(reset_gate) gfxBitmap(1, 45, 8, RESET_ICON);
+      //gfxPrint(9 + pad(100,curr_step), 45, curr_step); gfxPrint("/");gfxPrint(steps);  // Pad x enough to hold width steady
+      int display_step = reset_gate ? reset_held_step : curr_step;
+      gfxPrint(6+pad(100,display_step), 55, display_step); gfxPrint("/");gfxPrint(steps);  // Pad x enough to hold width steady
+      if(reset_gate) gfxBitmap(1, 55, 8, RESET_ICON);
 
+      
+      //gfxBitmap(1, 55, 8, CV_ICON); gfxPos(12, 55); gfxPrintVoltage(cv_out);  // Numeric readout for testing
+      
+      // Level indicator
+      //gfxInvert(9, 55, ProportionCV(cv_out, 54), 9);
+
+      // Try up/down indicator:
+      int h = 1+ProportionCV(cv_out, 46);  // Always show 1 
+      //gfxInvert(52, 63-h, 9, h);
+      gfxInvert(48, 63-h, 9, h);
 
       // Cursor
       //gfxCursor(1, 23 + (cursor * 10), 62);  // This is a flashing underline cursor for the whole row when used like this
       if(cursor == 0)
       {
-        gfxCursor(42, 23 + (cursor * 10), 20);  // flashing underline on the number
+        //gfxCursor(42, 23 + (cursor * 10), 18);  // flashing underline on the number
+        gfxCursor(16, 23, 15);  // flashing underline on the number
       }
       else if(cursor == 1)
       {
-        gfxCursor(29, 23 + (cursor * 10), 33);  // flashing underline on the number
+        
+        //gfxCursor(16, 23 + (cursor * 10), 18);  // flashing underline on the number
+        gfxCursor(36, 23, 9);  // flashing underline on up/down icon
       }
       else
       {
-        gfxCursor(1, 23 + (cursor * 10), 61);  // flashing underline on the number
+        gfxCursor(16, 23 + (cursor * 10), 20);  // flashing underline on the random setting
       }
     }
     
