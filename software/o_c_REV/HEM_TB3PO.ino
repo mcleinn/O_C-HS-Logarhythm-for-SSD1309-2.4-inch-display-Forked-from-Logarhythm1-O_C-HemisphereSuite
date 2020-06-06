@@ -26,7 +26,10 @@
 // CV gates are output at 3v for normal notes and 5v for accented notes
 // TODO: Output proper envelopes?
 
-#include "HSMIDI.h"
+//#include "HSMIDI.h"
+#include "braids_quantizer.h"
+#include "braids_quantizer_scales.h"
+#include "OC_scales.h"
 
 
 #define ACID_MAX_STEPS 16
@@ -44,12 +47,22 @@ public:
     	
     	seed = random(0, 65535); // 16 bits
     	regenerate(seed);
-          
+      
+      scale = OC::Scales::SCALE_SEMI;
+      quantizer.Init();
+      quantizer.Configure(OC::Scales::GetScale(scale), 0xffff);
+
+      next_clock = 0;
+      cycle_time = 0;
+      
     	play = 1;
     }
 
     void Controller() 
     {
+      // Track timing to set gate timing at ~32nd notes per recent clocks
+      int this_tick = OC::CORE::ticks;
+      
       // Regenerate
       if (Clock(1)) 
       {
@@ -61,16 +74,20 @@ public:
         //ClockOut(1);
       }
       
-      int transpose = 0;
+      int transpose_in = 0;
       if (DetentedIn(0)) 
       {
-        transpose = In(0) / 128; // 128 ADC steps per semitone
+        transpose_in = In(0) / 128; // 128 ADC steps per semitone
       }
-      int play_note = notes[step] + 60 + transpose;
-      play_note = constrain(play_note, 0, 127);
+      //int play_note = notes[step] + 60 + transpose;
+      //play_note = constrain(play_note, 0, 127);
       
       // Wait for the ADC since transpose CV is needed
-      if (Clock(0)) StartADCLag();
+      if (Clock(0)) 
+      {
+        cycle_time = ClockCycleTicks(0);  // Track for gate times
+        StartADCLag();
+      }
       
       if (EndOfADCLag() && !Gate(1))
       {
@@ -96,7 +113,17 @@ public:
         
         play = 1;
       }
-      
+
+
+      // TODO: Gate timing at ~32nd notes up to some max
+      /*
+      if (this_tick >= next_clock) 
+      {
+          int clock_every = (cycle_time / div);
+          next_clock += clock_every;
+          // Duration elapsed, so shut gate off
+      }
+      */
       
       // TODO: Apply CV density directly to regenerate gates, if int change?
       // TODO: Maybe instead, this cv live-controls a gate skip % chance? (And also sets density when regenerating)
@@ -107,9 +134,18 @@ public:
       
       
         // Note: If prior step was slid, the gate should still be open, and this pitch change should be slid
+
+
+        // From Sequins APP_A_SEQ:
+        //step_pitch_ = get_pitch_at_step(display_num_sequence_, clk_cnt_) + (_octave * 12 << 7); 
+
         
         // TODO: Set a target pitch instead for slides, with expo 
-        int cv = MIDIQuantizer::CV(play_note);
+        //int cv = pitches[step]; //MIDIQuantizer::CV(play_note);
+
+        
+        int quant_note = notes[step] + 64 + root + transpose_in;
+        int cv = quantizer.Lookup( constrain(quant_note, 0, 127));
         cv += curr_glide_cv;
         Out(0, cv);
         
@@ -135,7 +171,7 @@ public:
     }
 
     void OnButtonPress() {
-      if (++cursor > 2) cursor = 0;
+      if (++cursor > 3) cursor = 0;
     }
 
     void OnEncoderMove(int direction) 
@@ -146,7 +182,8 @@ public:
         scale += direction;
         if (scale >= OC::Scales::NUM_SCALES) scale = 0;
         if (scale < 0) scale = OC::Scales::NUM_SCALES - 1;
-        //quantizer[ch].Configure(OC::Scales::GetScale(scale[ch]), 0xffff);
+        quantizer.Configure(OC::Scales::GetScale(scale), 0xffff);
+
         //continuous[ch] = 1; // Re-enable continuous mode when scale is changed
       } 
       else if(cursor == 1)
@@ -154,7 +191,7 @@ public:
         // Root selection
         root = constrain(root + direction, 0, 11);
       }
-      else
+      else if(cursor == 2)
       {
       	// Set for the next time a pattern is generated
       	density = constrain(density + direction, 0, 10);
@@ -163,6 +200,10 @@ public:
       	// TODO: Maybe instead of altering the existing gates, just set a mask to logical-AND against the existing pattern?
       	// Apply the new density live
       	//apply_density();  // TODO: Move to update loop to react to cv as well?
+      }
+      else
+      {
+        num_steps = constrain(num_steps + direction, 1, 16);
       }
     }
 
@@ -182,7 +223,8 @@ public:
       root = Unpack(data, PackLocation {8,4});
       density = Unpack(data, PackLocation {12,4});
       seed = Unpack(data, PackLocation {16,16});
-      
+
+      quantizer.Configure(OC::Scales::GetScale(scale), 0xffff);
       
       root = constrain(root, 0, 11);
       density = constrain(density, 0,10);
@@ -212,12 +254,22 @@ private:
   int gates = 0; 		// Bitfield of gates;  ((gates >> step) & 1) means gate
   int slides = 0; 	// Bitfield of slide steps; ((slides >> step) & 1) means slide
   int accents = 0; 	// Bitfield of accent steps; ((accents >> step) & 1) means accent
+  int num_steps = 16;
   int notes[ACID_MAX_STEPS];
+  //int pitches[ACID_MAX_STEPS];  // Use cv since we get the available ones from the quantizer
+  
   int step = 0; // Current sequencer step
   bool play; // Play the note
   
+  // For gate timing as ~32nd notes at tempo, detect clock rate like a clock multiplier
+  int next_clock; // Tick number for the next output (for clock multiply)
+  int cycle_time; // Cycle time between the last two clock inputs
+  
   
   int curr_glide_cv = 0;
+
+
+  braids::Quantizer quantizer;  // Helper for note index --> pitch cv
   
   uint16_t seed;
   int scale = 0;		// Scale
@@ -235,21 +287,26 @@ private:
 		apply_density();
 	}
 	
-	// Regenerate pitches
-	void regenerate_pitches()
-	{
-		
-		// TODO: scale-constrain
+  // Regenerate pitches
+  void regenerate_pitches()
+  {
+    //int bag[4] = {0, 12, 1, 7};
 
-    int bag[4] = {0, 12, 1, 7};
-
+    // Get the available note count to choose from per oct
+    // This doesn't really matter since notes are index-based, and the quant scale can be changed live
+    // But it will color the random note selection to the scale maybe?
+    const braids::Scale & quant_scale = OC::Scales::GetScale(scale);
+    int num_notes = quant_scale.num_notes;
     
-		for (int s = 0; s < ACID_MAX_STEPS; s++) 
-		{
-			// Test octs
-			//notes[s] = root + rand_bit(40) * 12; //random(0, 30);
-     notes[s] = root + bag[random(0,3)];
-		}
+    for (int s = 0; s < ACID_MAX_STEPS; s++) 
+    {
+    	// Test octs
+    	////notes[s] = root + rand_bit(40) * 12; //random(0, 30);
+     
+      //notes[s] = root + bag[random(0,3)];
+      notes[s] = random(0,num_notes-1);  // + rand_bit(40)*num_notes;
+      
+    }
 	
 	}
 	
@@ -302,16 +359,16 @@ private:
 
 	int get_next_step(int step)
 	{
-		if(++step == ACID_MAX_STEPS)
+		if(++step >= num_steps)//ACID_MAX_STEPS)
 		{
 			return 0;
 		}
-		return step;  // Advanced
+		return step;  // Advanced by one
 	}
 
 
 	
-
+  // Pass in a probability 0-100 to get that % chance to return 1
 	int rand_bit(int prob)
 	{
 		return (random(1, 100) <= prob) ? 1 : 0;
@@ -329,10 +386,75 @@ private:
 
 
     //gfxPrint(1, 35, "gt:");gfxPrint(gates);  // DEBUG
-    // Status
-    //gfxPrint(51, 45, step);
-    gfxPrint(1 + pad(100,step), 45, step); gfxPrint("/");gfxPrint(ACID_MAX_STEPS);  // Pad x enough to hold width steady
-    gfxPrint(1, 55, "Note:"); gfxPrint(notes[step]);
+
+   // Display 16-bit seed in 4 hex digits -- allow per-character editing for user recall?  (Use hand-entered seed on next "regenerate" rather than re-rolling it)
+
+    // Show seed in hex (todo: editable, move to first item?)
+    int disp_seed = seed;
+    gfxPrint(1, 35, "seed: ");
+    char sz[2]; sz[1] = 0;  // Null terminated string
+    for(int i=0; i<4; ++i)
+    {
+      int nib = disp_seed & 0xF;
+      if(nib<=9)
+      {
+        gfxPrint(nib);
+      }
+      else
+      {
+        sz[0] = 'a' + nib - 10;
+        gfxPrint(static_cast<const char*>(sz));
+      }
+      //char c = nib <= 9 ? '0'+nib : 'a'+nib-10;  // hex char
+      //gfxPrint(c);
+      disp_seed >>= 4;
+    }
+
+
+    
+    int display_step = step+1;  // Protocol droids know that humans count from 1
+    gfxPrint(1 + pad(100,display_step), 45, display_step); gfxPrint("/");gfxPrint(num_steps);  // Pad x enough to hold width steady
+    //gfxPrint(1, 55, "pitch: "); gfxPrint(notes[step]);
+
+    
+    gfxPrint(50, 55, notes[step]);
+    //gfxBitmap(1, 55, 8, CV_ICON); gfxPos(12, 55); gfxPrintVoltage(pitches[step]);
+
+    // SEE gfxIcon and gfxBitmap possibilities
+
+    int iPlayingIndex = (root + notes[step]) % 12;  // TODO: use current scale modulo
+    // Draw notes
+
+    
+    //Test
+    //gfxFrame(3, 59, 5, 4);
+    //gfxFrame(3+6, 59, 5, 4);
+
+    
+    // TODO: Use current scale num notes
+    int x = 3;
+    int y = 59;
+    int keyPatt = 0x054A; // keys encoded as 0=white 1=black, starting at c, backwards:  b  0 0101 0100 1010
+    for(int i=0; i<12; ++i)
+    {
+      // Black key?
+      y = ( keyPatt & 0x1 ) ? 54 : 59;
+      keyPatt >>= 1;
+      
+      // Two white keys in a row E and F
+      if( i == 5 ) x+=3;
+
+      if(iPlayingIndex == i)
+      {
+        gfxRect(x, y, 5, 4);
+      }
+      else
+      {
+        gfxFrame(x, y, 5, 4);
+      }
+      
+      x += 3;
+    }
     
     // Draw cursor
     
@@ -348,6 +470,10 @@ private:
     else if(cursor == 2)
     {
       gfxCursor(33, 33, 30);
+    }
+    else if(cursor == 3)
+    {
+      gfxCursor(25, 55, 16);
     }
              
   }
