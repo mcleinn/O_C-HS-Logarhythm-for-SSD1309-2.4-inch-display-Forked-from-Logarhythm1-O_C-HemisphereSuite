@@ -38,6 +38,8 @@
 class TB_3PO : public HemisphereApplet {
 public:
 
+    const uint8_t RANDOM_ICON[8] = {0x7c,0x82,0x8a,0x82,0xa2,0x82,0x7c,0x00};  // A die showing '2'
+
     const char* applet_name() { // Maximum 10 characters
         return "TB-3PO";
     }
@@ -48,12 +50,21 @@ public:
     	seed = random(0, 65535); // 16 bits
     	regenerate(seed);
       
-      scale = OC::Scales::SCALE_SEMI;
+      scale = 29;  // GUNA scale sounds cool   //OC::Scales::SCALE_SEMI; // semi sounds pretty bunk
       quantizer.Init();
       quantizer.Configure(OC::Scales::GetScale(scale), 0xffff);
 
-      next_clock = 0;
+      //timing_count = 0;
+      gate_off_clock = 0;
       cycle_time = 0;
+
+      curr_gate_cv = 0;
+
+
+      curr_pitch_cv = 0;
+      slide_end_cv = 0;
+      
+      transpose_note_in = 0;    
       
     	play = 1;
     }
@@ -63,9 +74,11 @@ public:
       // Track timing to set gate timing at ~32nd notes per recent clocks
       int this_tick = OC::CORE::ticks;
       
-      // Regenerate
+      // Regenerate / Reset
       if (Clock(1)) 
       {
+
+        //timing_count = 0;
         
         // TODO: debounce this with some kind of delay
         seed = random(0, 65535); // 16 bits
@@ -74,95 +87,151 @@ public:
         //ClockOut(1);
       }
       
-      int transpose_in = 0;
+      transpose_note_in = 0;
       if (DetentedIn(0)) 
       {
-        transpose_in = In(0) / 128; // 128 ADC steps per semitone
+        transpose_note_in = In(0) / 128; // 128 ADC steps per semitone
       }
+
+      
       //int play_note = notes[step] + 60 + transpose;
       //play_note = constrain(play_note, 0, 127);
       
       // Wait for the ADC since transpose CV is needed
       if (Clock(0)) 
       {
-        cycle_time = ClockCycleTicks(0);  // Track for gate times
+        cycle_time = ClockCycleTicks(0);  // Track latest interval of clock 0 for gate timings
+        
         StartADCLag();
       }
-      
-      if (EndOfADCLag() && !Gate(1))
+
+      if (EndOfADCLag() && !Gate(1))  // Reset not held
       {
+        int step_pv = step;
         
         // Advance the step
         step = get_next_step(step);
+
+
+        // Was step before this one set to 'slide'?
+        // If so, engage a slide from its pitch to this step's pitch now
+        if(step_is_slid(step_pv))
+        {
+
+          // TRIGGER SLIDE to own pitch
+          int slide_start_cv = get_pitch_for_step(step_pv);
+
+
+          // Jump current pitch to prior step's value if not there already
+          // TODO: Consider just gliding from whereever it is?
+          curr_pitch_cv = slide_start_cv;
+  
+          // Slide target pitch
+          slide_end_cv = get_pitch_for_step(step);
+
+        }
+        else
+        {
+          // Prior step was not slid, so snap to current pitch
+          curr_pitch_cv = get_pitch_for_step(step);
+          slide_end_cv = curr_pitch_cv;
+        }
+
+
         
-        // Lookahead to see what's coming next
-        //int next_step = get_next_step(step);
         
-        //if(step_is_slid(step))
-        //{
-        // Gate should be held open until the next step instead of usual duty cycle
-        
-        
-        //if(step_is_slid(next_step))
-        //{
-        //}
-        //}
-        
-        if(step_is_gated(step))
-          ClockOut(1);
-        
-        play = 1;
+        // Open the gate if this step is gated, or hold it open for at least 1/2 step if the prior step was slid
+        if(step_is_gated(step) || step_is_slid(step_pv))
+        {
+          //ClockOut(1);
+  
+          // Accented gates get a higher voltage, so it can drive VCA gain in addition to triggering envelope generators
+          curr_gate_cv = step_is_accent(step) ? HEMISPHERE_MAX_CV : HEMISPHERE_3V_CV;
+
+          // Set up the timing for this gate
+          //cycle_time = ClockCycleTicks(0);  // Track for gate times
+          //++timing_count;
+          // On each clock, schedule the next clock at a multiplied rate
+          int gate_time = (cycle_time / 2);  // multiplier of 2
+          gate_off_clock = this_tick + gate_time;
+        }
+ 
+        //play = 1;
       }
 
-
-      // TODO: Gate timing at ~32nd notes up to some max
-      /*
-      if (this_tick >= next_clock) 
+      // Update the clock multiplier for gate timings
+      //if(curr_gate_cv > 0 && this_tick >= next_clock)
+      if(curr_gate_cv > 0 && gate_off_clock > 0 && this_tick >= gate_off_clock)
       {
-          int clock_every = (cycle_time / div);
-          next_clock += clock_every;
-          // Duration elapsed, so shut gate off
+        // Time for gate off
+        
+        gate_off_clock = 0;
+        //int clock_every = (cycle_time / 2);  // Use half of latest measured clock cycle time for gate lengths
+        //next_clock += clock_every;
+        
+        // Do nothing if the current step should be slid
+        if(!step_is_slid(step))
+        {
+          curr_gate_cv = 0;//HEMISPHERE_CENTER_CV;
+        }
       }
-      */
+
       
       // TODO: Apply CV density directly to regenerate gates, if int change?
       // TODO: Maybe instead, this cv live-controls a gate skip % chance? (And also sets density when regenerating)
       
       
-      if (play) 
-      {
-      
-      
+      //if (play) 
+      //{
+   
         // Note: If prior step was slid, the gate should still be open, and this pitch change should be slid
-
+        // Time to bend?
+        // Start cv is 
 
         // From Sequins APP_A_SEQ:
         //step_pitch_ = get_pitch_at_step(display_num_sequence_, clk_cnt_) + (_octave * 12 << 7); 
-
-        
+    
         // TODO: Set a target pitch instead for slides, with expo 
         //int cv = pitches[step]; //MIDIQuantizer::CV(play_note);
+        
+        //int quant_note = notes[step] + 64 + root + transpose_note_in;
+        //curr_pitch_cv = quantizer.Lookup( constrain(quant_note, 0, 127));
+        // curr_glide_cv
+        //curr_pitch_cv = get_pitch_for_step(step);
+        
+        // TODO: Move this out of clock only when gliding
+        //Out(0, curr_pitch_cv);
+      //}
+
+
+      // Update slide if needed
+      if(curr_pitch_cv != slide_end_cv)
+      {
+
+        // Working: This gives constant rate linear glide (but we want expo fixed-time)
+        curr_pitch_cv +=  (slide_end_cv - curr_pitch_cv > 0 ? 1 : -1);
 
         
-        int quant_note = notes[step] + 64 + root + transpose_in;
-        int cv = quantizer.Lookup( constrain(quant_note, 0, 127));
-        cv += curr_glide_cv;
-        Out(0, cv);
+        /*  this isn't working right
+        int slide_const = 3000;
         
-        
-        if(step_is_gated(step))
-        {
-          if(step_is_slid(step))
-          {
-          // Set a flag to hold the gate open until next step
-          }
-          
-          
-          // TODO: Fix
-          // For now just output a clock when there is a gate on the step			
-          //GateOut(1);
-        }
+        curr_pitch_cv +=  simfloat2int((int2simfloat( (slide_end_cv - curr_pitch_cv) )) / (int2simfloat(slide_const)));
+        */
+        //curr_pitch_cv = Proportion(curr_step, steps, HEMISPHERE_MAX_CV);  // 0-5v, scaled with fixed-point
+
+
+        int epsilon = 1;  // Figure out what this should be to snap to 100% pitch as approach is near enough
+        if(curr_pitch_cv + epsilon > slide_end_cv)
+          curr_pitch_cv = slide_end_cv;
       }
+
+
+      // Pitch out
+      Out(0, curr_pitch_cv);
+      
+      // Gate out (as CV)
+      Out(1, curr_gate_cv);
+      
     }
 
     void View() {
@@ -171,12 +240,16 @@ public:
     }
 
     void OnButtonPress() {
-      if (++cursor > 3) cursor = 0;
+      if (++cursor > 4) cursor = 0;
     }
 
     void OnEncoderMove(int direction) 
     {
       if (cursor == 0)
+      {
+        // seed
+      }
+      else if (cursor == 1)
       {
         // Scale selection
         scale += direction;
@@ -186,12 +259,12 @@ public:
 
         //continuous[ch] = 1; // Re-enable continuous mode when scale is changed
       } 
-      else if(cursor == 1)
+      else if(cursor == 2)
       {
         // Root selection
         root = constrain(root + direction, 0, 11);
       }
-      else if(cursor == 2)
+      else if(cursor == 3)
       {
       	// Set for the next time a pattern is generated
       	density = constrain(density + direction, 0, 10);
@@ -257,27 +330,40 @@ private:
   int num_steps = 16;
   int notes[ACID_MAX_STEPS];
   //int pitches[ACID_MAX_STEPS];  // Use cv since we get the available ones from the quantizer
+
+  int transpose_note_in;  // Current transposition, in note numbers
   
   int step = 0; // Current sequencer step
   bool play; // Play the note
   
   // For gate timing as ~32nd notes at tempo, detect clock rate like a clock multiplier
-  int next_clock; // Tick number for the next output (for clock multiply)
+  //int timing_count;
+  int gate_off_clock;
   int cycle_time; // Cycle time between the last two clock inputs
   
-  
-  int curr_glide_cv = 0;
+  int curr_gate_cv = 0;
 
+  //int slide_start_cv = 0;
+  int curr_pitch_cv = 0;
+  int slide_end_cv = 0;
+  //int slide_ticks = 0;
 
   braids::Quantizer quantizer;  // Helper for note index --> pitch cv
   
   uint16_t seed;
-  int scale = 0;		// Scale
+  int scale;		// Scale
   uint8_t root = 0;	// Root note
   
   uint8_t density = 10;  // 
 
-	
+
+  // Get the cv value to use for a given step including root + transpose values
+  int get_pitch_for_step(int step_num)
+  {
+    int quant_note = notes[step_num] + 64 + root + transpose_note_in;
+    return quantizer.Lookup( constrain(quant_note, 0, 127));
+  }
+  
 	
 	void regenerate(int seed)
 	{
@@ -297,16 +383,50 @@ private:
     // But it will color the random note selection to the scale maybe?
     const braids::Scale & quant_scale = OC::Scales::GetScale(scale);
     int num_notes = quant_scale.num_notes;
+
     
     for (int s = 0; s < ACID_MAX_STEPS; s++) 
     {
-    	// Test octs
-    	////notes[s] = root + rand_bit(40) * 12; //random(0, 30);
-     
-      //notes[s] = root + bag[random(0,3)];
-      notes[s] = random(0,num_notes-1);  // + rand_bit(40)*num_notes;
+      /*
+      // Test octs
+    	//notes[s] = root + rand_bit(40) * 12; //random(0, 30);
+      notes[s] = root;
+      if(s == ACID_MAX_STEPS-1)
+        notes[s]+=12;
+      */
+
+
+      /*
+      if(s > 0)
+      {
+        // Chance to hold prior note
+        if(rand_bit(10))
+        {
+          notes[s] = notes[s-1];
+        }
+      }
+      else
+      {
+      */
+        //notes[s] = root + bag[random(0,3)];
+        
+        // Grab a note from the scale
+        notes[s] = random(0,num_notes-1);
+
+        // Random oct up or down (Treating octave based on the scale's number of notes)
+        if(rand_bit(40))
+        {
+          notes[s] += num_notes * (rand_bit(50) ? -1 : 1);
+        }
+        
+      //}
+ 
       
     }
+
+
+    
+    
 	
 	}
 	
@@ -323,6 +443,9 @@ private:
 			gates <<= 1;
 		}
 
+    // TEST SLIDES
+    //slides = 0x1111;
+    
 		slides = 0;
 		for(int i=0; i<ACID_MAX_STEPS; ++i)
 		{
@@ -340,7 +463,6 @@ private:
 			accents |= latest;
 			accents <<= 1;
 		}
-
 		
 	}
 	
@@ -365,8 +487,6 @@ private:
 		}
 		return step;  // Advanced by one
 	}
-
-
 	
   // Pass in a probability 0-100 to get that % chance to return 1
 	int rand_bit(int prob)
@@ -378,20 +498,12 @@ private:
   {
      
     // Draw settings
-    gfxPrint(1, 15, OC::scale_names_short[scale]);
-    //gfxBitmap(31, 25, 8, notes);
-    gfxPrint(41, 15, OC::Strings::note_names_unpadded[root]);
     
-    gfxPrint(1, 25, "dens:"); gfxPrint(density);
-
-
-    //gfxPrint(1, 35, "gt:");gfxPrint(gates);  // DEBUG
-
-   // Display 16-bit seed in 4 hex digits -- allow per-character editing for user recall?  (Use hand-entered seed on next "regenerate" rather than re-rolling it)
-
+    gfxBitmap(1, 15, 8, RANDOM_ICON);
+    gfxPrint(12, 15, " ");
     // Show seed in hex (todo: editable, move to first item?)
     int disp_seed = seed;
-    gfxPrint(1, 35, "seed: ");
+    //gfxPrint(1, 15, "seed: ");
     char sz[2]; sz[1] = 0;  // Null terminated string
     for(int i=0; i<4; ++i)
     {
@@ -409,6 +521,23 @@ private:
       //gfxPrint(c);
       disp_seed >>= 4;
     }
+
+
+
+    
+    gfxPrint(1, 25, OC::scale_names_short[scale]);
+    //gfxBitmap(31, 25, 8, notes);
+    gfxPrint(41, 25, OC::Strings::note_names_unpadded[root]);
+    
+    //gfxPrint(1, 35, "dens:"); gfxPrint(density);
+    
+    gfxBitmap(1, 35, 8, NOTE4_ICON);gfxBitmap(6, 35, 8, NOTE4_ICON);  // Jam a couple of these together
+    gfxPrint(12+8, 35, density);
+
+    //gfxPrint(1, 35, "gt:");gfxPrint(gates);  // DEBUG
+
+   // Display 16-bit seed in 4 hex digits -- allow per-character editing for user recall?  (Use hand-entered seed on next "regenerate" rather than re-rolling it)
+
 
 
     
@@ -444,7 +573,7 @@ private:
       // Two white keys in a row E and F
       if( i == 5 ) x+=3;
 
-      if(iPlayingIndex == i)
+      if(iPlayingIndex == i && step_is_gated(step))  // Only render a pitch if gated
       {
         gfxRect(x, y, 5, 4);
       }
@@ -455,23 +584,41 @@ private:
       
       x += 3;
     }
+
+    
+    // Indicate slide circuit activate
+    //int prior_step = step-1; if(step<0) step = num_steps-1;
+    //if(step_is_slid(prior_step))
+    if(step_is_slid(step))
+    {
+        gfxBitmap(42, 46, 8, BEND_ICON);
+    }
+
+    // running slide
+    if(curr_pitch_cv != slide_end_cv)
+    {
+      //gfxBitmap(50, 59, 8, BEND_ICON);
+      gfxBitmap(52, 46, 8, WAVEFORM_ICON);
+    }
     
     // Draw cursor
-    
-    
-    if (cursor == 0) 
+    if (cursor == 0) // seed
     {
       gfxCursor(1, 23, 30);
     }
     else if(cursor == 1)
     {
-      gfxCursor(41, 23, 12);
+      gfxCursor(1, 33, 30);
     }
     else if(cursor == 2)
     {
-      gfxCursor(33, 33, 30);
+      gfxCursor(41, 33, 12);
     }
     else if(cursor == 3)
+    {
+      gfxCursor(33, 43, 30);
+    }
+    else if(cursor == 4)
     {
       gfxCursor(25, 55, 16);
     }
