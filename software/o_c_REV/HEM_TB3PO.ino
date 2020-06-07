@@ -62,6 +62,7 @@ public:
 
 
       curr_pitch_cv = 0;
+      slide_start_cv = 0;
       slide_end_cv = 0;
       
       transpose_note_in = 0;    
@@ -77,13 +78,17 @@ public:
       // Regenerate / Reset
       if (Clock(1)) 
       {
+        // If user is interacting with the seed values, "lock" the seed
+        // (This makes the pulse effectively just a reset if the user hasn't changed the seed since the last pulse -- determinism!)
+        if(cursor > 3)
+        {
+          // TODO: debounce this with some kind of delay
+          seed = random(0, 65535); // 16 bits
+        }
 
-        //timing_count = 0;
-        
-        // TODO: debounce this with some kind of delay
-        seed = random(0, 65535); // 16 bits
+        // Apply the seed the user is editing or a random one if the cursor is elsewhere
         regenerate(seed);
-        //step = 0;
+        step = 0;
         //ClockOut(1);
       }
       
@@ -119,7 +124,7 @@ public:
         {
 
           // TRIGGER SLIDE to own pitch
-          int slide_start_cv = get_pitch_for_step(step_pv);
+          slide_start_cv = get_pitch_for_step(step_pv);
 
 
           // Jump current pitch to prior step's value if not there already
@@ -134,11 +139,10 @@ public:
         {
           // Prior step was not slid, so snap to current pitch
           curr_pitch_cv = get_pitch_for_step(step);
+          slide_start_cv = curr_pitch_cv;
           slide_end_cv = curr_pitch_cv;
         }
 
-
-        
         
         // Open the gate if this step is gated, or hold it open for at least 1/2 step if the prior step was slid
         if(step_is_gated(step) || step_is_slid(step_pv))
@@ -209,7 +213,40 @@ public:
       {
 
         // Working: This gives constant rate linear glide (but we want expo fixed-time)
-        curr_pitch_cv +=  (slide_end_cv - curr_pitch_cv > 0 ? 1 : -1);
+//        curr_pitch_cv +=  (slide_end_cv - curr_pitch_cv > 0 ? 1 : -1);
+
+        // (This could optionally use peak's lut_env_expo[] for interpolation instead)
+        // Expo slide (code assist from CBS)
+        // Use fixed point with 16 bits of fractional data
+        //int k = 0x09FF;  // expo constant:  0 = infinite time to settle, 0xFFFF ~= 1, fastest rate
+
+        // 2nd pass
+        int k = 0x0002;  // expo constant:  0 = infinite time to settle, 0xFFFF ~= 1, fastest rate
+                        // Choose this to give 303-like pitch slide timings given the O&C's update rate
+
+        // Tested good values: 
+        //k = 0x0005;  // larger than this seems far too fast
+        //k = 0x0003; // GOOD
+        //k = 0x0002;
+        //k = 0x0001;  // too slow
+        
+        int x = slide_end_cv;
+        x -= curr_pitch_cv;
+        x >>= 16;
+        x *= k;
+        curr_pitch_cv += x;
+
+        /*  1st pass: requires constrain or it overshoots
+        int k = 0x00FF;  // expo constant:  0 = infinite time to settle, 0xFFFF ~= 1, fastest rate
+                        // Choose this to give 303-like pitch slide timings given the O&C's update rate
+        int x = (slide_end_cv);
+        x -= (curr_pitch_cv >> 16);
+        x *= k;
+        x >>= 16;
+        curr_pitch_cv += x;
+       
+        curr_pitch_cv = constrain(curr_pitch_cv, slide_start_cv, slide_end_cv);
+        */
 
         
         /*  this isn't working right
@@ -219,10 +256,10 @@ public:
         */
         //curr_pitch_cv = Proportion(curr_step, steps, HEMISPHERE_MAX_CV);  // 0-5v, scaled with fixed-point
 
-
-        int epsilon = 1;  // Figure out what this should be to snap to 100% pitch as approach is near enough
-        if(curr_pitch_cv + epsilon > slide_end_cv)
-          curr_pitch_cv = slide_end_cv;
+      // TODO: Use Abs() on this if reinstated!
+        //int epsilon = 1;  // Figure out what this should be to snap to 100% pitch as approach is near enough
+        //if(curr_pitch_cv + epsilon > slide_end_cv)
+          //curr_pitch_cv = slide_end_cv;
       }
 
 
@@ -240,16 +277,39 @@ public:
     }
 
     void OnButtonPress() {
-      if (++cursor > 4) cursor = 0;
+      if (++cursor > 7) cursor = 0;
     }
 
     void OnEncoderMove(int direction) 
     {
-      if (cursor == 0)
+      if (cursor <= 3)
       {
         // seed
+
+        // Cursor at 0 is most significant byte
+        int byte_offs = 3-cursor;  
+        int shift_amt = byte_offs;
+
+        uint32_t nib = (seed >> shift_amt)& 0xf;
+        uint8_t c = nib;
+        c = constrain(c+direction, 0, 0xF);
+        nib = c;
+        uint32_t mask = 0xf;
+        seed &= ~(mask << shift_amt);
+        seed |= (nib << shift_amt);
+
+          /*
+          if(cursor == 3)  // works
+          {
+          int nib = seed & 0xf;
+          nib = constrain(nib+direction, 0, 0xF);
+          uint32_t mask = 0xf;
+          seed &= (~mask);
+          seed |= nib;
+          }
+          */
       }
-      else if (cursor == 1)
+      else if (cursor == 4)
       {
         // Scale selection
         scale += direction;
@@ -259,12 +319,12 @@ public:
 
         //continuous[ch] = 1; // Re-enable continuous mode when scale is changed
       } 
-      else if(cursor == 2)
+      else if(cursor == 5)
       {
         // Root selection
         root = constrain(root + direction, 0, 11);
       }
-      else if(cursor == 3)
+      else if(cursor == 6)
       {
       	// Set for the next time a pattern is generated
       	density = constrain(density + direction, 0, 10);
@@ -343,8 +403,9 @@ private:
   
   int curr_gate_cv = 0;
 
-  //int slide_start_cv = 0;
+  
   int curr_pitch_cv = 0;
+  int slide_start_cv = 0;
   int slide_end_cv = 0;
   //int slide_ticks = 0;
 
@@ -450,7 +511,7 @@ private:
 		for(int i=0; i<ACID_MAX_STEPS; ++i)
 		{
 			  // Less probability of consecutive slides
-			latest = rand_bit((latest ? 10 : 14));
+			latest = rand_bit((latest ? 10 : 16));
 			slides |= latest;
 			slides <<= 1;
 		}
@@ -500,14 +561,22 @@ private:
     // Draw settings
     
     gfxBitmap(1, 15, 8, RANDOM_ICON);
-    gfxPrint(12, 15, " ");
+
+    // Lock the seed if user-changing it
+    if(cursor <= 3)
+    {
+      gfxBitmap(9, 15, 8, LOCK_ICON);
+    }
+    
+    //gfxPrint(12, 15, " ");
+    gfxPos(20, 15);
     // Show seed in hex (todo: editable, move to first item?)
     int disp_seed = seed;
     //gfxPrint(1, 15, "seed: ");
     char sz[2]; sz[1] = 0;  // Null terminated string
-    for(int i=0; i<4; ++i)
+    for(int i=3; i>=0; --i)
     {
-      int nib = disp_seed & 0xF;
+      int nib = (disp_seed >> (i*4))& 0xF;
       if(nib<=9)
       {
         gfxPrint(nib);
@@ -517,22 +586,21 @@ private:
         sz[0] = 'a' + nib - 10;
         gfxPrint(static_cast<const char*>(sz));
       }
-      //char c = nib <= 9 ? '0'+nib : 'a'+nib-10;  // hex char
-      //gfxPrint(c);
-      disp_seed >>= 4;
+      //disp_seed >>= 4;
     }
 
 
 
-    
-    gfxPrint(1, 25, OC::scale_names_short[scale]);
+    gfxBitmap(1, 25, 8, SCALE_ICON);
+    gfxPrint(12, 25, OC::scale_names_short[scale]);
     //gfxBitmap(31, 25, 8, notes);
-    gfxPrint(41, 25, OC::Strings::note_names_unpadded[root]);
+    gfxBitmap(42, 25, 8, NOTE4_ICON);
+    gfxPrint(49, 25, OC::Strings::note_names_unpadded[root]);
     
     //gfxPrint(1, 35, "dens:"); gfxPrint(density);
     
     gfxBitmap(1, 35, 8, NOTE4_ICON);gfxBitmap(6, 35, 8, NOTE4_ICON);  // Jam a couple of these together
-    gfxPrint(12+8, 35, density);
+    gfxPrint(20, 35, density);
 
     //gfxPrint(1, 35, "gt:");gfxPrint(gates);  // DEBUG
 
@@ -602,25 +670,26 @@ private:
     }
     
     // Draw cursor
-    if (cursor == 0) // seed
+    if (cursor <= 3) // seed, 4 positions
     {
-      gfxCursor(1, 23, 30);
-    }
-    else if(cursor == 1)
-    {
-      gfxCursor(1, 33, 30);
-    }
-    else if(cursor == 2)
-    {
-      gfxCursor(41, 33, 12);
-    }
-    else if(cursor == 3)
-    {
-      gfxCursor(33, 43, 30);
+      // TODO: Fix num positions?
+      gfxCursor(20 + 5*cursor, 23, 8);
     }
     else if(cursor == 4)
     {
-      gfxCursor(25, 55, 16);
+      gfxCursor(12, 33, 26);  // scale
+    }
+    else if(cursor == 5)
+    {
+      gfxCursor(49, 33, 12);  // root note
+    }
+    else if(cursor == 6)
+    {
+      gfxCursor(20, 43, 12);  // density
+    }
+    else if(cursor == 7)
+    {
+      gfxCursor(25, 55, 16);  // note count
     }
              
   }
