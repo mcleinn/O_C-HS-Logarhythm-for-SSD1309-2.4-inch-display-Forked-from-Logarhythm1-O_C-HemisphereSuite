@@ -221,7 +221,7 @@ public:
         //int k = 0x09FF;  // expo constant:  0 = infinite time to settle, 0xFFFF ~= 1, fastest rate
 
         // 2nd pass
-        int k = 0x0002;  // expo constant:  0 = infinite time to settle, 0xFFFF ~= 1, fastest rate
+        int k = 0x0003;  // expo constant:  0 = infinite time to settle, 0xFFFF ~= 1, fastest rate
                         // Choose this to give 303-like pitch slide timings given the O&C's update rate
 
         // Tested good values: 
@@ -284,11 +284,11 @@ public:
     {
       if (cursor <= 3)
       {
-        // seed
-
+        // Editing one of the 4 hex digits of the seed
+        
         // Cursor at 0 is most significant byte
         int byte_offs = 3-cursor;  
-        int shift_amt = byte_offs;
+        int shift_amt = byte_offs*4;
 
         uint32_t nib = (seed >> shift_amt)& 0xf;
         uint8_t c = nib;
@@ -298,16 +298,6 @@ public:
         seed &= ~(mask << shift_amt);
         seed |= (nib << shift_amt);
 
-          /*
-          if(cursor == 3)  // works
-          {
-          int nib = seed & 0xf;
-          nib = constrain(nib+direction, 0, 0xF);
-          uint32_t mask = 0xf;
-          seed &= (~mask);
-          seed |= nib;
-          }
-          */
       }
       else if (cursor == 4)
       {
@@ -327,7 +317,7 @@ public:
       else if(cursor == 6)
       {
       	// Set for the next time a pattern is generated
-      	density = constrain(density + direction, 0, 10);
+      	density = constrain(density + direction, 0, 12);
       	
       	
       	// TODO: Maybe instead of altering the existing gates, just set a mask to logical-AND against the existing pattern?
@@ -415,7 +405,8 @@ private:
   int scale;		// Scale
   uint8_t root = 0;	// Root note
   
-  uint8_t density = 10;  // 
+  uint8_t density = 9;  // density specifies the likelihood of each note being 'on', 10=100%
+                        // values > 10 increase the likelihood that the same note will be repeated in sequence
 
 
   // Get the cv value to use for a given step including root + transpose values
@@ -437,7 +428,6 @@ private:
   // Regenerate pitches
   void regenerate_pitches()
   {
-    //int bag[4] = {0, 12, 1, 7};
 
     // Get the available note count to choose from per oct
     // This doesn't really matter since notes are index-based, and the quant scale can be changed live
@@ -448,47 +438,35 @@ private:
     
     for (int s = 0; s < ACID_MAX_STEPS; s++) 
     {
-      /*
-      // Test octs
-    	//notes[s] = root + rand_bit(40) * 12; //random(0, 30);
-      notes[s] = root;
-      if(s == ACID_MAX_STEPS-1)
-        notes[s]+=12;
-      */
-
-
-      /*
-      if(s > 0)
+      
+      // Increased chance to repeat the prior note for values of density > 10
+      if(density > 10 && s > 0 && rand_bit(10 + 2 * (density-10)))
       {
-        // Chance to hold prior note
-        if(rand_bit(10))
-        {
-          notes[s] = notes[s-1];
-        }
+        notes[s] = notes[s-1];
       }
       else
       {
-      */
+      
         //notes[s] = root + bag[random(0,3)];
-        
-        // Grab a note from the scale
-        notes[s] = random(0,num_notes-1);
 
+        if(num_notes == 0)
+        {
+          // 'none' scale has no notes, so just use root + oct shifts
+          notes[s] = 0;
+        }
+        else
+        {
+          // Grab a note from the scale
+          notes[s] = random(0,num_notes-1);
+        }
         // Random oct up or down (Treating octave based on the scale's number of notes)
         if(rand_bit(40))
         {
-          notes[s] += num_notes * (rand_bit(50) ? -1 : 1);
+          // Use 12-note octave if 'none'
+          notes[s] += (num_notes > 0 ? num_notes : 12) * (rand_bit(50) ? -1 : 1);
         }
-        
-      //}
- 
-      
+      }
     }
-
-
-    
-    
-	
 	}
 	
 	// Change pattern density without affecting pitches
@@ -511,7 +489,7 @@ private:
 		for(int i=0; i<ACID_MAX_STEPS; ++i)
 		{
 			  // Less probability of consecutive slides
-			latest = rand_bit((latest ? 10 : 16));
+			latest = rand_bit((latest ? 10 : 18));
 			slides |= latest;
 			slides <<= 1;
 		}
@@ -520,7 +498,7 @@ private:
 		for(int i=0; i<ACID_MAX_STEPS; ++i)
 		{
 			// Less probability of consecutive accents
-			latest = rand_bit((latest ? 5 : 10));
+			latest = rand_bit((latest ? 5 : 12));
 			accents |= latest;
 			accents <<= 1;
 		}
@@ -571,7 +549,7 @@ private:
     //gfxPrint(12, 15, " ");
     gfxPos(20, 15);
     // Show seed in hex (todo: editable, move to first item?)
-    int disp_seed = seed;
+    int disp_seed = seed;   //0xABCD // test
     //gfxPrint(1, 15, "seed: ");
     char sz[2]; sz[1] = 0;  // Null terminated string
     for(int i=3; i>=0; --i)
@@ -673,7 +651,7 @@ private:
     if (cursor <= 3) // seed, 4 positions
     {
       // TODO: Fix num positions?
-      gfxCursor(20 + 5*cursor, 23, 8);
+      gfxCursor(20 + 6*cursor, 23, 8);
     }
     else if(cursor == 4)
     {
@@ -694,56 +672,6 @@ private:
              
   }
 
-
-
-
-	/*
-    void DrawPanel() {
-		
-		
-        // Sliders
-        for (int s = 0; s < SEQ5_STEPS; s++)
-        {
-            int x = 6 + (12 * s);
-            //int x = 6 + (7 * s); // APD:  narrower to fit more
-            
-            if (!step_is_muted(s)) {
-                gfxLine(x, 25, x, 63);
-
-                // When cursor, there's a heavier bar and a solid slider
-                if (s == cursor) {
-                    gfxLine(x + 1, 25, x + 1, 63);
-                    gfxRect(x - 4, BottomAlign(note[s]), 9, 3);
-                    //gfxRect(x - 2, BottomAlign(note[s]), 5, 3);  // APD
-                } else 
-                {
-                  gfxFrame(x - 4, BottomAlign(note[s]), 9, 3);
-                  //gfxFrame(x - 2, BottomAlign(note[s]), 5, 3);  // APD
-                }
-                
-                // When on this step, there's an indicator circle
-                if (s == step) 
-                {
-
-                  
-                  gfxCircle(x, 20, 3);  //Original
-
-                  // APD
-                  //int play_note = note[step];// + 60 + transpose;
-
-                  //gfxPrint(10, 15, "Scale ");
-                  //gfxPrint(cursor < 12 ? 1 : 2);
-                  //gfxPrint(x, 20, play_note);
-                  
-                }
-            } else if (s == cursor) {
-                gfxLine(x, 25, x, 63);
-                gfxLine(x + 1, 25, x + 1, 63);
-             }
-        }
-    }
-	*/
-	
 
 };
 
