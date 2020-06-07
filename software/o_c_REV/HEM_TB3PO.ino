@@ -46,7 +46,8 @@ public:
 
     void Start() 
     {
-    	
+    	rand_apply_anim = 0;
+      
     	seed = random(0, 65535); // 16 bits
     	regenerate(seed);
       
@@ -179,89 +180,46 @@ public:
           curr_gate_cv = 0;//HEMISPHERE_CENTER_CV;
         }
       }
-
       
       // TODO: Apply CV density directly to regenerate gates, if int change?
       // TODO: Maybe instead, this cv live-controls a gate skip % chance? (And also sets density when regenerating)
-      
-      
-      //if (play) 
-      //{
-   
-        // Note: If prior step was slid, the gate should still be open, and this pitch change should be slid
-        // Time to bend?
-        // Start cv is 
-
-        // From Sequins APP_A_SEQ:
-        //step_pitch_ = get_pitch_at_step(display_num_sequence_, clk_cnt_) + (_octave * 12 << 7); 
-    
-        // TODO: Set a target pitch instead for slides, with expo 
-        //int cv = pitches[step]; //MIDIQuantizer::CV(play_note);
-        
-        //int quant_note = notes[step] + 64 + root + transpose_note_in;
-        //curr_pitch_cv = quantizer.Lookup( constrain(quant_note, 0, 127));
-        // curr_glide_cv
-        //curr_pitch_cv = get_pitch_for_step(step);
-        
-        // TODO: Move this out of clock only when gliding
-        //Out(0, curr_pitch_cv);
-      //}
-
 
       // Update slide if needed
       if(curr_pitch_cv != slide_end_cv)
       {
 
-        // Working: This gives constant rate linear glide (but we want expo fixed-time)
-//        curr_pitch_cv +=  (slide_end_cv - curr_pitch_cv > 0 ? 1 : -1);
+        // This gives constant rate linear glide (but we want expo fixed-time)
+        // curr_pitch_cv +=  (slide_end_cv - curr_pitch_cv > 0 ? 1 : -1);
 
         // (This could optionally use peak's lut_env_expo[] for interpolation instead)
         // Expo slide (code assist from CBS)
-        // Use fixed point with 16 bits of fractional data
-        //int k = 0x09FF;  // expo constant:  0 = infinite time to settle, 0xFFFF ~= 1, fastest rate
 
-        // 2nd pass
+  
         int k = 0x0003;  // expo constant:  0 = infinite time to settle, 0xFFFF ~= 1, fastest rate
                         // Choose this to give 303-like pitch slide timings given the O&C's update rate
 
-        // Tested good values: 
-        //k = 0x0005;  // larger than this seems far too fast
-        //k = 0x0003; // GOOD
-        //k = 0x0002;
-        //k = 0x0001;  // too slow
-        
+        // k = 0x3 sounds good here with >>=18
+     
         int x = slide_end_cv;
         x -= curr_pitch_cv;
-        x >>= 16;
+        x >>= 18;  
         x *= k;
         curr_pitch_cv += x;
 
-        /*  1st pass: requires constrain or it overshoots
-        int k = 0x00FF;  // expo constant:  0 = infinite time to settle, 0xFFFF ~= 1, fastest rate
-                        // Choose this to give 303-like pitch slide timings given the O&C's update rate
-        int x = (slide_end_cv);
-        x -= (curr_pitch_cv >> 16);
-        x *= k;
-        x >>= 16;
-        curr_pitch_cv += x;
-       
-        curr_pitch_cv = constrain(curr_pitch_cv, slide_start_cv, slide_end_cv);
-        */
+        // TODO: Check constrain
+        if(slide_start_cv < slide_end_cv)
+        {
+          curr_pitch_cv = constrain(curr_pitch_cv, slide_start_cv, slide_end_cv);
 
-        
-        /*  this isn't working right
-        int slide_const = 3000;
-        
-        curr_pitch_cv +=  simfloat2int((int2simfloat( (slide_end_cv - curr_pitch_cv) )) / (int2simfloat(slide_const)));
-        */
-        //curr_pitch_cv = Proportion(curr_step, steps, HEMISPHERE_MAX_CV);  // 0-5v, scaled with fixed-point
+          // set a bit if constrain was needed
+        }
+        else
+        {
+          curr_pitch_cv = constrain(curr_pitch_cv, slide_end_cv, slide_start_cv);
 
-      // TODO: Use Abs() on this if reinstated!
-        //int epsilon = 1;  // Figure out what this should be to snap to 100% pitch as approach is near enough
-        //if(curr_pitch_cv + epsilon > slide_end_cv)
-          //curr_pitch_cv = slide_end_cv;
+          // set a bit if constrain was needed
+        }
       }
-
 
       // Pitch out
       Out(0, curr_pitch_cv);
@@ -399,6 +357,8 @@ private:
   int slide_end_cv = 0;
   //int slide_ticks = 0;
 
+  int rand_apply_anim = 0;  // Countdown to animate the die when regenerate occurs
+
   braids::Quantizer quantizer;  // Helper for note index --> pitch cv
   
   uint16_t seed;
@@ -423,6 +383,8 @@ private:
 		
 		regenerate_pitches();
 		apply_density();
+
+    rand_apply_anim = 20;  // Show that regenerate occured (anim for this many display updates)
 	}
 	
   // Regenerate pitches
@@ -537,8 +499,14 @@ private:
   {
      
     // Draw settings
-    
-    gfxBitmap(1, 15, 8, RANDOM_ICON);
+
+    int die_y = 15;
+    if(rand_apply_anim > 0)
+    {
+      --rand_apply_anim;
+      die_y = 13;      
+    }
+    gfxBitmap(1, die_y, 8, RANDOM_ICON);
 
     // Lock the seed if user-changing it
     if(cursor <= 3)
@@ -605,7 +573,34 @@ private:
     //gfxFrame(3, 59, 5, 4);
     //gfxFrame(3+6, 59, 5, 4);
 
-    
+    // Try: Small closed box normally, open large box on playing note
+    int x = 4;
+    int y = 61;
+    int keyPatt = 0x054A; // keys encoded as 0=white 1=black, starting at c, backwards:  b  0 0101 0100 1010
+    for(int i=0; i<12; ++i)
+    {
+      // Black key?
+      y = ( keyPatt & 0x1 ) ? 56 : 61;
+      keyPatt >>= 1;
+      
+      // Two white keys in a row E and F
+      if( i == 5 ) x+=3;
+
+      if(iPlayingIndex == i && step_is_gated(step))  // Only render a pitch if gated
+      {
+        //gfxFrame(x-1, y-1, 5, 4);  // Larger outline frame
+        gfxRect(x-1, y-1, 5, 4);  // Larger box
+        
+      }
+      else
+      {
+        gfxRect(x, y, 3, 2);  // Small filled box
+      }
+      
+      x += 3;
+    }
+
+    /*  // Original: open boxes normally, filled playing note
     // TODO: Use current scale num notes
     int x = 3;
     int y = 59;
@@ -630,7 +625,7 @@ private:
       
       x += 3;
     }
-
+    */
     
     // Indicate slide circuit activate
     //int prior_step = step-1; if(step<0) step = num_steps-1;
@@ -663,11 +658,11 @@ private:
     }
     else if(cursor == 6)
     {
-      gfxCursor(20, 43, 12);  // density
+      gfxCursor(20, 43, 14);  // density
     }
     else if(cursor == 7)
     {
-      gfxCursor(25, 55, 16);  // note count
+      gfxCursor(24, 55-2, 14);  // note count (up a bit to not collide with notes below)
     }
              
   }

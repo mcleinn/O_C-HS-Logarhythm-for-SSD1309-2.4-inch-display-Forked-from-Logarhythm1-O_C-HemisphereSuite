@@ -51,6 +51,7 @@ public:
         position_cv_lock = 0;
         reset_held_step = 0;
         reset_gate = 0;
+        //rand_anim_time = 0;
         
         reverse = 0;
         cv_out = 0;
@@ -163,6 +164,8 @@ public:
               cv_rand = random(0, cv_rand/4);  // Deviate up to 1/x step amount
               // Randomly choose offset direction
               cv_rand *= (random(0,100) > 50) ? 1 : -1;
+
+              //rand_anim_time = 12;  // Jostle the die graphic up a bit for a split second
             }
           
         }
@@ -247,11 +250,12 @@ private:
     int reverse;    // current movement direction
     int cv_out;     // CV currently being output (track for display)
 
-    int cv_rand;    // track last computed random offset for cv
-    int step_cv_lock;  // 1 if cv is controlling the current step (show on display)
-    int position_cv_lock;  // 1 if cv is controlling the current step (show on display)
-    int reset_gate;  // Track if currently held in reset (show an icon)
-    int reset_held_step;  // Step when reset was initially asserted (for display)
+    int cv_rand;            // track last computed random offset for cv
+    int step_cv_lock;       // 1 if cv is controlling the current step (show on display)
+    int position_cv_lock;   // 1 if cv is controlling the current step (show on display)
+    int reset_gate;         // Track if currently held in reset (show an icon)
+    int reset_held_step;    // Step when reset was initially asserted (for display)
+    int rand_anim_time;     // Track wiggling the die when random is applied (for display)
     
     int cursor;     // 0 = steps, 1 = direction, 2 = random
 
@@ -292,6 +296,17 @@ private:
       // Just to see this:
       //gfxBitmap(55, 25, 8, UP_DOWN_ICON);
 
+      
+      /*
+      // When it applies, animate a jump on the random icon
+      int die_y = 35;
+      if(rand_anim_time > 0)  // Set when random is applied in Controller() update
+      {
+        --rand_anim_time;
+        die_y = 33;
+      }
+      gfxBitmap(1, die_y, 8, RANDOM_ICON);
+      */
       gfxBitmap(1, 35, 8, RANDOM_ICON);
       if(!rand)
       {
