@@ -51,11 +51,25 @@ class TB_3PO : public HemisphereApplet
     	seed = random(0, 65535); // 16 bits
     	regenerate(seed);
 
+      manual_reset_flag = 0;
       rand_apply_anim = 0;
+
+      
+      root = 0;
+      // Init the quantizer for selecting pitches / CVs from
       scale = 29;  // GUNA scale sounds cool   //OC::Scales::SCALE_SEMI; // semi sounds pretty bunk
       quantizer.Init();
       quantizer.Configure(OC::Scales::GetScale(scale), 0xffff);
 
+      // This quantizer is for displaying a keyboard graphic, mapping the current scale to semitones
+      //display_semi_quantizer.Init();
+      //display_semi_quantizer.Configure(OC::Scales::GetScale(OC::Scales::SCALE_SEMI), 0xffff);
+      
+      density = 12;
+      density_cv_lock = 0;
+
+      num_steps = 16;
+      
       gate_off_clock = 0;
       cycle_time = 0;
 
@@ -74,8 +88,9 @@ class TB_3PO : public HemisphereApplet
       int this_tick = OC::CORE::ticks;
       
       // Regenerate / Reset
-      if (Clock(1)) 
+      if (Clock(1) || manual_reset_flag) 
       {
+        manual_reset_flag = 0;
         // If the seed is not locked, then randomize it on every reset pulse
         // Otherwise, the user has locked it, so leave it as set
         if(lock_seed == 0)
@@ -83,19 +98,30 @@ class TB_3PO : public HemisphereApplet
           seed = random(0, 65535); // 16 bits
         }
 
-        // Apply the seed to regenerate the pattern
+        // Apply the seed to regenerate the pattern`
         // This is deterministic so if the seed is held, the pattern will not change
         regenerate(seed);
 
         // Reset to step 1
         step = 0;
       }
-      
+
+      // Control transpose from cv1 (Very fun to wiggle)
       transpose_note_in = 0;
       if (DetentedIn(0)) 
       {
         transpose_note_in = In(0) / 128; // 128 ADC steps per semitone
       }
+
+      // Control density from cv1 (Wiggling can build up & break down patterns nicely, especially if seed is locked)
+      density_cv_lock = 0;  // Track if density is under cv control
+      if (DetentedIn(1)) 
+      {
+          int num = ProportionCV(In(1), 15);
+          density = constrain(num, 0, 14);
+          density_cv_lock = 1;
+      }
+
 
       // Wait for the ADC since transpose CV is needed
       if (Clock(0)) 
@@ -218,6 +244,8 @@ class TB_3PO : public HemisphereApplet
       {
         cursor = 0;
       }
+      
+      ResetCursor();  // Reset blink so it's immediately visible when moved
     }
 
     void OnEncoderMove(int direction) 
@@ -226,7 +254,17 @@ class TB_3PO : public HemisphereApplet
       {
         // Toggle the seed between auto (randomized every reset input pulse) 
         // or Manual (seed becomes locked, cursor can be moved to edit each digit)
-        lock_seed = constrain(lock_seed+direction, 0, 1);
+
+        
+        lock_seed += direction;
+
+        // See if the turn would move beyond the random die to the left or the lock to the right
+        // If so, take this as a manual input just like receiving a reset pulse (handled in Controller())
+        // regenerate() will honor the random or locked icon shown (seed will be randomized or not)
+        manual_reset_flag = (lock_seed > 1 || lock_seed < 0) ? 1 : 0;
+        
+        // constrain to legal values before regeneration
+        lock_seed = constrain(lock_seed, 0, 1);
       }
       if (cursor <= 4)
       {
@@ -264,7 +302,8 @@ class TB_3PO : public HemisphereApplet
       else if(cursor == 7)
       {
       	// Set for the next time a pattern is generated
-      	density = constrain(density + direction, 0, 12);
+      	//density = constrain(density + direction, 0, 12);
+        density = constrain(density + direction, 0, 14);  // Treated as a bipolar -7 to 7 in practice
       	
       	
       	// TODO: Maybe instead of altering the existing gates, just set a mask to logical-AND against the existing pattern?
@@ -297,7 +336,8 @@ class TB_3PO : public HemisphereApplet
       quantizer.Configure(OC::Scales::GetScale(scale), 0xffff);
       
       root = constrain(root, 0, 11);
-      density = constrain(density, 0,10);
+      //density = constrain(density, 0,10);
+      density = constrain(density, 0,14);
       //quantizer.Configure(OC::Scales::GetScale(scale), 0xffff);
       
       
@@ -324,7 +364,7 @@ class TB_3PO : public HemisphereApplet
     int gates = 0; 		// Bitfield of gates;  ((gates >> step) & 1) means gate
     int slides = 0; 	// Bitfield of slide steps; ((slides >> step) & 1) means slide
     int accents = 0; 	// Bitfield of accent steps; ((accents >> step) & 1) means accent
-    int num_steps = 16;
+    int num_steps;
     int notes[ACID_MAX_STEPS];
     //int pitches[ACID_MAX_STEPS];  // Use cv since we get the available ones from the quantizer
     
@@ -339,6 +379,7 @@ class TB_3PO : public HemisphereApplet
     
     int curr_gate_cv = 0;
     
+    int manual_reset_flag = 0;  // Manual trigger to reset/regen
     
     int curr_pitch_cv = 0;
     int slide_start_cv = 0;
@@ -348,15 +389,19 @@ class TB_3PO : public HemisphereApplet
     int rand_apply_anim = 0;  // Countdown to animate the die when regenerate occurs
     
     braids::Quantizer quantizer;  // Helper for note index --> pitch cv
+    //braids::Quantizer display_semi_quantizer;  // Quantizer to interpret the current note for display on a keyboard
     
     int lock_seed;  // If 1, the seed won't randomize (and manual editing is enabled)
     uint16_t seed;
-    int scale;		// Scale
-    uint8_t root = 0;	// Root note
-    
-    uint8_t density = 9;  // density specifies the likelihood of each note being 'on', 10=100%
-                          // values > 10 increase the likelihood that the same note will be repeated in sequence
-    
+    int scale;		  // Scale
+    uint8_t root; 	// Root note
+
+    uint8_t density;  // The density parameter controls a couple of things at once. Its 0-14 value is mapped to -7..+7 range
+                      // The larger the magnitude from zero in either direction, the more dense the note patterns are (fewer rests)
+                      // For values mapped < 0 (e.g. left range,) the more negative the value is, the less chance consecutive pitches will
+                      // change from the prior pitch, giving repeating lines (note: octave jumps still apply)
+
+    int density_cv_lock;  // Tracks if density is under cv control (can't change manually)
   
     // Get the cv value to use for a given step including root + transpose values
     int get_pitch_for_step(int step_num)
@@ -383,17 +428,24 @@ class TB_3PO : public HemisphereApplet
       // But it will color the random note selection to the scale maybe?
       const braids::Scale & quant_scale = OC::Scales::GetScale(scale);
       int num_notes = quant_scale.num_notes;
+
+      // How much pitch variety to use from the available pitches (one of the factors of the 'density' control when < centerpoint)
+      int pitch_change_dens = get_pitch_change_density();
       
       for (int s = 0; s < ACID_MAX_STEPS; s++) 
       {
-        // Increased chance to repeat the prior note for values of density > 10
-        if(density > 10 && s > 0 && rand_bit(10 + 2 * (density-10)))
+        //OLD: // Increased chance to repeat the prior note for values of density > 10
+        //if(density > 10 && s > 0 && rand_bit(10 + 2 * (density-10)))
+
+        // New: Increased chance to repeat the prior note, the smaller the pitch change aspect of 'density' is
+        // 0-8, least to most likely to change pitch
+        int force_repeat_note_prob = 96 - (pitch_change_dens * 12);
+        if(s > 0 && rand_bit(force_repeat_note_prob))
         {
           notes[s] = notes[s-1];
         }
         else
         {
-          //notes[s] = root + bag[random(0,3)];
           if(num_notes == 0)
           {
             // 'none' scale has no notes, so just use root + oct shifts
@@ -420,7 +472,11 @@ class TB_3PO : public HemisphereApplet
   		int latest = 0; // Track previous bit for some algos
   		
   		gates = 0;
-  		int densProb = density * 10;
+
+      // Get gate probability from the 'density' value
+      int on_off_dens = get_on_off_density();
+      int densProb = 10 + on_off_dens * 14;  // Should start >0 and reach 100+
+  		//int densProb = density * 10;
   		for(int i=0; i<ACID_MAX_STEPS; ++i)
   		{
   			gates |= rand_bit(densProb);
@@ -448,7 +504,30 @@ class TB_3PO : public HemisphereApplet
   			accents <<= 1;
   		}
   	}
-  	
+
+    // Get on/off likelihood from the current value of 'density'
+    // The density slider's midpoint represents 
+    int get_on_off_density()
+    {
+      // density has a range 0-14
+      // Convert density to a bipolar value from -7..+7, with the +-7 extremes in either direction 
+      // as high note density, and the 0 point as lowest possible note density
+      int note_dens = int(density) - 7;
+      return abs(note_dens);
+    }
+
+    // Get the degree to which pitches should change based on the value of 'density'
+    // The density slider's center and right half indicate full pitch change range
+    // The further the slider is to the left of the centerpoint, the less pitches should change
+    int get_pitch_change_density()
+    {
+      // Smaller values indicate fewer pitches should be drawn from
+      return constrain(density, 0,8);  // Note that the right half of the slider is clamped to full range
+    }
+
+    
+
+    
     bool step_is_gated(int step) {
         return (gates & (0x01 << step));
     }
@@ -475,6 +554,29 @@ class TB_3PO : public HemisphereApplet
   	{
   		return (random(1, 100) <= prob) ? 1 : 0;
   	}
+
+
+/*
+    // Determine approximately where a pitch index for the current scale should be mapped
+    // onto a semitone scale keyboard (just for display purposes, mostly so western note subset scales look right!)
+    int map_cv_to_piano_pitch(playing_scale_note_index)
+    {
+      // Get details from current scale
+      const braids::Scale & quant_scale = OC::Scales::GetScale(scale);
+      int num_notes = quant_scale.num_notes;
+
+
+      // This won't work: negative offsets go backwards in scale
+      //eplaying_scale_note_index %= num_notes;  // Trim down to root index
+
+      //int playing_cv = 
+
+      const braids::Scale & semitone_scale = OC::Scales::GetScale(OC::Scales::SCALE_SEMI);
+      
+      
+      
+    }
+  */
   
     void DrawGraphics()
     {
@@ -528,10 +630,33 @@ class TB_3PO : public HemisphereApplet
       gfxBitmap(42, 25, 8, NOTE4_ICON);
       gfxPrint(49, 25, OC::Strings::note_names_unpadded[root]);
   
-      
+
+      // TODO: Show both factors of density with graphics here, gate and pitch delta
       // Density 
-      gfxBitmap(1, 35, 8, NOTE4_ICON);gfxBitmap(6, 35, 8, NOTE4_ICON);  // Jam a couple of these together
-      gfxPrint(20, 35, density);
+
+      int gate_dens = get_on_off_density();
+      int pitch_dens = get_pitch_change_density();
+      
+      int xd = 5 + 7-gate_dens;
+      int yd = (64*pitch_dens)/256;  // Multiply for better fidelity
+      gfxBitmap(12-xd, 35+yd, 8, NOTE4_ICON);
+      gfxBitmap(12, 35-yd, 8, NOTE4_ICON);
+      gfxBitmap(12+xd, 35, 8, NOTE4_ICON);
+
+      gfxPrint(40, 35, gate_dens);
+      if(density < 8)
+      {
+        gfxPrint(33, 35, "-");  // Print minus sign this way to right-align the number
+      }
+      
+      // Indicate if cv is controlling the density (and locking out manual settings)
+      if(density_cv_lock)
+      {
+        gfxBitmap(49, 35+2, 8, CV_ICON);
+      }
+      
+      
+      //gfxPrint(" (");gfxPrint(density);gfxPrint(")");  // Debug print of actual density value
   
   
       // Current / total steps
@@ -543,7 +668,15 @@ class TB_3PO : public HemisphereApplet
       gfxPrint(50, 55, notes[step]);
       //gfxBitmap(1, 55, 8, CV_ICON); gfxPos(12, 55); gfxPrintVoltage(pitches[step]);
       
-  
+
+
+      // Figure out what available semitone piano pitch is closest to the current step's issued pitch
+      // To cram it onto a piano keyboard visually
+
+// TODO
+
+
+      
       int iPlayingIndex = (root + notes[step]) % 12;  // TODO: use current scale modulo
       // Draw notes
   
@@ -576,33 +709,7 @@ class TB_3PO : public HemisphereApplet
         }
         x += 3;
       }
-  
-      /*  // Original: open boxes normally, filled playing note
-      // TODO: Use current scale num notes
-      int x = 3;
-      int y = 59;
-      int keyPatt = 0x054A; // keys encoded as 0=white 1=black, starting at c, backwards:  b  0 0101 0100 1010
-      for(int i=0; i<12; ++i)
-      {
-        // Black key?
-        y = ( keyPatt & 0x1 ) ? 54 : 59;
-        keyPatt >>= 1;
-        
-        // Two white keys in a row E and F
-        if( i == 5 ) x+=3;
-  
-        if(iPlayingIndex == i && step_is_gated(step))  // Only render a pitch if gated
-        {
-          gfxRect(x, y, 5, 4);
-        }
-        else
-        {
-          gfxFrame(x, y, 5, 4);
-        }
-        
-        x += 3;
-      }
-      */
+
       
       // Indicate if the current step has a slide
       if(step_is_slid(step))
@@ -646,7 +753,7 @@ class TB_3PO : public HemisphereApplet
       }
       else if(cursor == 7)
       {
-        gfxCursor(20, 43, 14);  // density
+        gfxCursor(32, 43, 18);  // density
       }
       else if(cursor == 8)
       {

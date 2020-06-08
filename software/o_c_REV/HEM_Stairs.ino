@@ -191,6 +191,8 @@ public:
 
     void OnButtonPress() {
       if(++cursor > 2) cursor = 0;
+
+      ResetCursor();  // Reset blink so it's immediately visible when moved
     }
 
     void OnEncoderMove(int direction) {
