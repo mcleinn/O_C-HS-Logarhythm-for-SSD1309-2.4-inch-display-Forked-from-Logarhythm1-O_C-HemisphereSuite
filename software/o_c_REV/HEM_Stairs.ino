@@ -49,7 +49,7 @@ public:
         
         step_cv_lock = 0;
         position_cv_lock = 0;
-        reset_held_step = 0;
+        //reset_held_step = 0;
         reset_gate = 0;
         //rand_anim_time = 0;
         
@@ -63,7 +63,6 @@ public:
         int curr_step_pv = curr_step;  // Detect if an input changes the step this update
         
         // CV input 0 (Step count)
-
         step_cv_lock = 0;  // Track if cv is controlling the step count, for display
         if(DetentedIn(0) > 0)   // Is CV greater than 0v by a deadzone amount?
         {
@@ -77,10 +76,9 @@ public:
         position_cv_lock = 0;  // Track if position is under cv control
         if(DetentedIn(1) > 0)   // Is CV greater than 0v by a deadzone amount?
         {
-          // TODO: Handle up/down mode by (steps/2 - 2)?
           int num = ProportionCV(In(1), steps);
           num = constrain(num, 0, steps);
-          curr_step = num;  // Just overwrite?  (TODO: Preferable to modulate a set point?)
+          curr_step = num;
           position_cv_lock = 1;
         }
 
@@ -88,7 +86,7 @@ public:
         // Digital Input 1: Reset pulse
         reset_gate = Gate(1);  // For display
         if (Clock(1)) {
-            reset_held_step = curr_step;  // For display
+            //reset_held_step = curr_step;  // For display
             curr_step = (dir != 2) ? 0 : steps;  // Go to 0th or last step depending on direction
             reverse = (dir != 2) ? 0 : 1;  // Reset reverse (really just for up/down mode)
             ClockOut(1);  // BOC pulse output
@@ -157,22 +155,21 @@ public:
         // Note: Should BOC pulses be moved here to trigger via CV changing current step?
         if(curr_step != curr_step_pv && !position_cv_lock)
         {
-            // Compute a new random offset if required
-            if(rand)
-            {
-              cv_rand = Proportion(1, steps, HEMISPHERE_MAX_CV);  // 0-5v, scaled with fixed-point
-              cv_rand = random(0, cv_rand/4);  // Deviate up to 1/x step amount
-              // Randomly choose offset direction
-              cv_rand *= (random(0,100) > 50) ? 1 : -1;
-
-              //rand_anim_time = 12;  // Jostle the die graphic up a bit for a split second
-            }
-          
+          // Compute a new random offset if required
+          if(rand)
+          {
+            cv_rand = Proportion(1, steps, HEMISPHERE_MAX_CV);  // 0-5v, scaled with fixed-point
+            cv_rand = random(0, cv_rand/4);  // Deviate up to 1/x step amount
+            // Randomly choose offset direction
+            cv_rand *= (random(0,100) > 50) ? 1 : -1;
+          }
         }
-        
 
-        if(!reset_gate)  // Don't update cv if reset gate is on-- this gives sample & hold of the last value until reset is released
-        {
+
+
+        //if(!reset_gate)  // Don't update cv if reset gate is on-- this gives sample & hold of the last value until reset is released
+        //{
+        
           // Steps will either be counting up or down, but it will always be an index into the cv range
           cv_out = Proportion(curr_step, steps, HEMISPHERE_MAX_CV);  // 0-5v, scaled with fixed-point
           if(rand && (curr_step != 0 && curr_step != steps))  // Don't randomize 1st and last steps so it always hits 0 and 5v?
@@ -180,7 +177,9 @@ public:
             cv_out += cv_rand;
             cv_out = constrain(cv_out, 0, HEMISPHERE_MAX_CV);  // (Not actually necessary if not randomizing start/end)        
           }
-        }
+        
+        //}
+        
         Out(0, cv_out);
     }
 
@@ -256,8 +255,8 @@ private:
     int step_cv_lock;       // 1 if cv is controlling the current step (show on display)
     int position_cv_lock;   // 1 if cv is controlling the current step (show on display)
     int reset_gate;         // Track if currently held in reset (show an icon)
-    int reset_held_step;    // Step when reset was initially asserted (for display)
-    int rand_anim_time;     // Track wiggling the die when random is applied (for display)
+    //int reset_held_step;    // Step when reset was initially asserted (for display)
+    //int rand_anim_time;     // Track wiggling the die when random is applied (for display)
     
     int cursor;     // 0 = steps, 1 = direction, 2 = random
 
@@ -265,50 +264,17 @@ private:
 
     void DrawDisplay()
     {
-      gfxBitmap(1, 15, 8, STAIRS_ICON); gfxPrint(16,15,steps);//gfxPrint(16,15,steps);
-      //if(cursor == 0) gfxCursor(16, 23, 15);  // flashing underline on the number
-      
-      //if(step_cv_lock) gfxBitmap(12, 15, 8, CV_ICON);
+      // Show a stairs icon followed by steps value
+      gfxBitmap(1, 15, 8, STAIRS_ICON); gfxPrint(16,15,steps);
       if(step_cv_lock)
       {
         gfxBitmap(16, 25, 8, CV_ICON);
-        //gfxInvert(16, 14, 15, 9);  // After cursor
       }
-      
 
-      
-      //int y = 15;
-      //gfxBitmap(1, y, 8, STAIRS_ICON);
-      //gfxPrint(9 + pad(100,curr_step), y, curr_step); gfxPrint("/");gfxPrint(steps);  // Pad x enough to hold width steady  // Tested: Makes it hard to interact w/max steps visually
-      //if(reset_gate) gfxBitmap(56, 15, 8, RESET_ICON);
-      
-      //if(step_cv_lock) gfxBitmap(50, 15, 8, CV_ICON);
-      //gfxBitmap(50, 15, 8, CV_ICON);  // Works if always shown
-
-      // Test dir icon on same line as steps
-      //gfxBitmap(36, 15, 8, (dir==0 ? UP_BTN_ICON : ( dir==1 ? UP_DOWN_ICON : DOWN_BTN_ICON )));
+      // Direction selector (as an icon)
       gfxBitmap(38, 15, 8, (dir==0 ? UP_BTN_ICON : ( dir==1 ? UP_DOWN_ICON : DOWN_BTN_ICON )));
-      
-      
-      // direction on its own line:
-      //gfxBitmap(1, 25, 8, LOOP_ICON);
-      //gfxBitmap(16, 25, 8, (dir==0 ? UP_BTN_ICON : ( dir==1 ? UP_DOWN_ICON : DOWN_BTN_ICON )));
-      
 
-      // Just to see this:
-      //gfxBitmap(55, 25, 8, UP_DOWN_ICON);
-
-      
-      /*
-      // When it applies, animate a jump on the random icon
-      int die_y = 35;
-      if(rand_anim_time > 0)  // Set when random is applied in Controller() update
-      {
-        --rand_anim_time;
-        die_y = 33;
-      }
-      gfxBitmap(1, die_y, 8, RANDOM_ICON);
-      */
+      // random wiggle on/off
       gfxBitmap(1, 35, 8, RANDOM_ICON);
       if(!rand)
       {
@@ -317,15 +283,11 @@ private:
       else
       {
         gfxPrint(16,35, "rnd");
-        //gfxPrint(1, 35, "r"); gfxPos(12, 35); gfxPrintVoltage(cv_rand);
-        //gfxInvert(16, 35, ProportionCV(cv_rand, 40), 9);  // will this flip on its own?
         //gfxPos(16, 35); gfxPrintVoltage(cv_rand);  // Numeric readout for testing
       }
-      
-      //if(reset_gate) gfxBitmap(1, 45, 8, RESET_ICON);
-      //gfxPrint(9 + pad(100,curr_step), 45, curr_step); gfxPrint("/");gfxPrint(steps);  // Pad x enough to hold width steady
-      int display_step = reset_gate ? reset_held_step : curr_step;
-      gfxPrint(6+pad(100,display_step), 55, display_step); gfxPrint("/");gfxPrint(steps);  // Pad x enough to hold width steady
+
+      // current/total steps
+      gfxPrint(6+pad(100,curr_step), 55, curr_step); gfxPrint("/");gfxPrint(steps);  // Pad x enough to hold width steady
       if(reset_gate)
       {
         gfxBitmap(1, 55, 8, RESET_ICON);  // Indicate that Reset is holding the step
@@ -335,28 +297,23 @@ private:
       {
         gfxBitmap(13, 45+3, 8, CV_ICON);  // Indicate that CV is holding the step
       }
-
       
       //gfxBitmap(1, 55, 8, CV_ICON); gfxPos(12, 55); gfxPrintVoltage(cv_out);  // Numeric readout for testing
-      
-      // Level indicator
+      // Horiz. Level indicator
       //gfxInvert(9, 55, ProportionCV(cv_out, 54), 9);
 
-      // Try up/down indicator:
+      // Up/down indicator:
       int h = 1+ProportionCV(cv_out, 46);  // Always show 1 
       //gfxInvert(52, 63-h, 9, h);
       gfxInvert(48, 63-h, 9, h);
 
       // Cursor
-      //gfxCursor(1, 23 + (cursor * 10), 62);  // This is a flashing underline cursor for the whole row when used like this
       if(cursor == 0)
       {
         gfxCursor(16, 23, 15);  // flashing underline on the number
       }
       else if(cursor == 1)
       {
-        
-        //gfxCursor(16, 23 + (cursor * 10), 18);  // flashing underline on the number
         gfxCursor(38, 23, 9);  // flashing underline on up/down icon
       }
       else
@@ -364,16 +321,6 @@ private:
         gfxCursor(16, 23 + (cursor * 10), 20);  // flashing underline on the random setting
       }
     }
-    
-    //void DrawDisplay() {
-      //  segment.SetPosition(11 + (hemisphere * 64), 32);
-       // for (int b = 0; b < 4; b++)
-        //{
-        //    segment.PrintDigit(static_cast<uint8_t>(bit[b]));
-        //}
-        //gfxRect(1, 15, ProportionCV(ViewOut(0), 62), 6);
-        //gfxRect(1, 58, ProportionCV(ViewOut(1), 62), 6);
-    //}
 };
 
 

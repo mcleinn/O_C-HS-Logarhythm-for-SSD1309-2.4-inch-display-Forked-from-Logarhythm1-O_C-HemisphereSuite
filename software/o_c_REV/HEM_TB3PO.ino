@@ -22,18 +22,16 @@
 // TB-3PO Hemisphere Applet
 // A random generator of TB-303 style acid patterns, closely following 303 gate timings
 // CV output 1 is pitch, CV output 2 is gates
-// CV pitch output (1) includes fixed-time exponential pitch slides timed as on 303s
+// CV pitch out includes fixed-time exponential pitch slides timed as on 303s
 // CV gates are output at 3v for normal notes and 5v for accented notes
 // TODO: Output proper envelopes?
 
-//#include "HSMIDI.h"
+
 #include "braids_quantizer.h"
 #include "braids_quantizer_scales.h"
 #include "OC_scales.h"
 
-
 #define ACID_MAX_STEPS 16
-
 
 class TB_3PO : public HemisphereApplet 
 {
@@ -121,7 +119,6 @@ class TB_3PO : public HemisphereApplet
           density = constrain(num, 0, 14);
           density_cv_lock = 1;
       }
-
 
       // Wait for the ADC since transpose CV is needed
       if (Clock(0)) 
@@ -254,8 +251,6 @@ class TB_3PO : public HemisphereApplet
       {
         // Toggle the seed between auto (randomized every reset input pulse) 
         // or Manual (seed becomes locked, cursor can be moved to edit each digit)
-
-        
         lock_seed += direction;
 
         // See if the turn would move beyond the random die to the left or the lock to the right
@@ -266,7 +261,7 @@ class TB_3PO : public HemisphereApplet
         // constrain to legal values before regeneration
         lock_seed = constrain(lock_seed, 0, 1);
       }
-      if (cursor <= 4)
+      else if (cursor <= 4)
       {
         // Editing one of the 4 hex digits of the seed
         
@@ -275,14 +270,13 @@ class TB_3PO : public HemisphereApplet
         int byte_offs = 4-cursor;  
         int shift_amt = byte_offs*4;
 
-        uint32_t nib = (seed >> shift_amt)& 0xf;
+        uint32_t nib = (seed >> shift_amt)& 0xf; // Abduct the nibble
         uint8_t c = nib;
-        c = constrain(c+direction, 0, 0xF);
+        c = constrain(c+direction, 0, 0xF);  // Edit the nibble
         nib = c;
         uint32_t mask = 0xf;
-        seed &= ~(mask << shift_amt);
-        seed |= (nib << shift_amt);
-
+        seed &= ~(mask << shift_amt);  // Clear bits where this nibble lives
+        seed |= (nib << shift_amt);    // Move the nibble to its home
       }
       else if (cursor == 5)
       {
@@ -291,12 +285,10 @@ class TB_3PO : public HemisphereApplet
         if (scale >= OC::Scales::NUM_SCALES) scale = 0;
         if (scale < 0) scale = OC::Scales::NUM_SCALES - 1;
         quantizer.Configure(OC::Scales::GetScale(scale), 0xffff);
-
-        //continuous[ch] = 1; // Re-enable continuous mode when scale is changed
       } 
       else if(cursor == 6)
       {
-        // Root selection
+        // Root note selection
         root = constrain(root + direction, 0, 11);
       }
       else if(cursor == 7)
@@ -304,7 +296,6 @@ class TB_3PO : public HemisphereApplet
       	// Set for the next time a pattern is generated
       	//density = constrain(density + direction, 0, 12);
         density = constrain(density + direction, 0, 14);  // Treated as a bipolar -7 to 7 in practice
-      	
       	
       	// TODO: Maybe instead of altering the existing gates, just set a mask to logical-AND against the existing pattern?
       	// Apply the new density live
@@ -336,14 +327,10 @@ class TB_3PO : public HemisphereApplet
       quantizer.Configure(OC::Scales::GetScale(scale), 0xffff);
       
       root = constrain(root, 0, 11);
-      //density = constrain(density, 0,10);
       density = constrain(density, 0,14);
-      //quantizer.Configure(OC::Scales::GetScale(scale), 0xffff);
-      
       
       // Restore all seed-derived settings!
       regenerate(seed);
-
     }
 
   protected:
@@ -358,43 +345,19 @@ class TB_3PO : public HemisphereApplet
     
   private:
     int cursor = 0;
-    
-    //char seed = 303;  // Seed value that can be saved/restored
-    
-    int gates = 0; 		// Bitfield of gates;  ((gates >> step) & 1) means gate
-    int slides = 0; 	// Bitfield of slide steps; ((slides >> step) & 1) means slide
-    int accents = 0; 	// Bitfield of accent steps; ((accents >> step) & 1) means accent
-    int num_steps;
-    int notes[ACID_MAX_STEPS];
-    //int pitches[ACID_MAX_STEPS];  // Use cv since we get the available ones from the quantizer
-    
-    int transpose_note_in;  // Current transposition, in note numbers
-    
-    int step = 0; // Current sequencer step
-    
-    // For gate timing as ~32nd notes at tempo, detect clock rate like a clock multiplier
-    //int timing_count;
-    int gate_off_clock;
-    int cycle_time; // Cycle time between the last two clock inputs
-    
-    int curr_gate_cv = 0;
-    
-    int manual_reset_flag = 0;  // Manual trigger to reset/regen
-    
-    int curr_pitch_cv = 0;
-    int slide_start_cv = 0;
-    int slide_end_cv = 0;
-    //int slide_ticks = 0;
-    
-    int rand_apply_anim = 0;  // Countdown to animate the die when regenerate occurs
-    
+
     braids::Quantizer quantizer;  // Helper for note index --> pitch cv
     //braids::Quantizer display_semi_quantizer;  // Quantizer to interpret the current note for display on a keyboard
     
+  
+    // User settings
+    int manual_reset_flag = 0;  // Manual trigger to reset/regen
+
     int lock_seed;  // If 1, the seed won't randomize (and manual editing is enabled)
-    uint16_t seed;
-    int scale;		  // Scale
-    uint8_t root; 	// Root note
+    uint16_t seed;  // The random seed that deterministically builds the sequence
+    
+    int scale;      // Scale
+    uint8_t root;   // Root note
 
     uint8_t density;  // The density parameter controls a couple of things at once. Its 0-14 value is mapped to -7..+7 range
                       // The larger the magnitude from zero in either direction, the more dense the note patterns are (fewer rests)
@@ -402,7 +365,36 @@ class TB_3PO : public HemisphereApplet
                       // change from the prior pitch, giving repeating lines (note: octave jumps still apply)
 
     int density_cv_lock;  // Tracks if density is under cv control (can't change manually)
-  
+
+    int num_steps;        // How many steps of the generated pattern to play before looping
+    
+    // Playback
+    int step = 0;           // Current sequencer step
+    int transpose_note_in;  // Current transposition, in note numbers
+
+    // Generated sequence data
+    int gates = 0; 		// Bitfield of gates;  ((gates >> step) & 1) means gate
+    int slides = 0; 	// Bitfield of slide steps; ((slides >> step) & 1) means slide
+    int accents = 0; 	// Bitfield of accent steps; ((accents >> step) & 1) means accent
+    int notes[ACID_MAX_STEPS];  // Note values
+    
+    // For gate timing as ~32nd notes at tempo, detect clock rate like a clock multiplier
+    //int timing_count;
+    int gate_off_clock; // Scheduled cycle at which the gate should be turned off (when applicable)
+    int cycle_time;     // Cycle time between the last two clock inputs
+
+    // CV output values
+    int curr_gate_cv = 0;
+    int curr_pitch_cv = 0;
+
+    // Pitch slide cv tracking
+    int slide_start_cv = 0;
+    int slide_end_cv = 0;
+
+    // Display
+    int rand_apply_anim = 0;  // Countdown to animate icons for when regenerate occurs
+
+
     // Get the cv value to use for a given step including root + transpose values
     int get_pitch_for_step(int step_num)
     {
@@ -410,7 +402,7 @@ class TB_3PO : public HemisphereApplet
       return quantizer.Lookup( constrain(quant_note, 0, 127));
     }
     
-  	
+  	// Generate the sequence deterministically using the seed
   	void regenerate(int seed)
   	{
 		  randomSeed(seed);  // Ensure random()'s seed
@@ -420,7 +412,7 @@ class TB_3PO : public HemisphereApplet
       rand_apply_anim = 40;  // Show that regenerate occured (anim for this many display updates)
   	}
   	
-    // Regenerate pitches
+    // Generate the notes sequence based on the seed and modified by density
     void regenerate_pitches()
     {
       // Get the available note count to choose from per oct
@@ -434,10 +426,7 @@ class TB_3PO : public HemisphereApplet
       
       for (int s = 0; s < ACID_MAX_STEPS; s++) 
       {
-        //OLD: // Increased chance to repeat the prior note for values of density > 10
-        //if(density > 10 && s > 0 && rand_bit(10 + 2 * (density-10)))
-
-        // New: Increased chance to repeat the prior note, the smaller the pitch change aspect of 'density' is
+        // Increased chance to repeat the prior note, the smaller the pitch change aspect of 'density' is
         // 0-8, least to most likely to change pitch
         int force_repeat_note_prob = 96 - (pitch_change_dens * 12);
         if(s > 0 && rand_bit(force_repeat_note_prob))
@@ -472,24 +461,19 @@ class TB_3PO : public HemisphereApplet
   		int latest = 0; // Track previous bit for some algos
   		
   		gates = 0;
-
       // Get gate probability from the 'density' value
       int on_off_dens = get_on_off_density();
       int densProb = 10 + on_off_dens * 14;  // Should start >0 and reach 100+
-  		//int densProb = density * 10;
   		for(int i=0; i<ACID_MAX_STEPS; ++i)
   		{
   			gates |= rand_bit(densProb);
   			gates <<= 1;
   		}
   
-      // TEST SLIDES
-      //slides = 0x1111;
-      
   		slides = 0;
   		for(int i=0; i<ACID_MAX_STEPS; ++i)
   		{
-  			  // Less probability of consecutive slides
+  		  // Less probability of consecutive slides
   			latest = rand_bit((latest ? 10 : 18));
   			slides |= latest;
   			slides <<= 1;
@@ -506,7 +490,6 @@ class TB_3PO : public HemisphereApplet
   	}
 
     // Get on/off likelihood from the current value of 'density'
-    // The density slider's midpoint represents 
     int get_on_off_density()
     {
       // density has a range 0-14
@@ -524,10 +507,7 @@ class TB_3PO : public HemisphereApplet
       // Smaller values indicate fewer pitches should be drawn from
       return constrain(density, 0,8);  // Note that the right half of the slider is clamped to full range
     }
-
-    
-
-    
+ 
     bool step_is_gated(int step) {
         return (gates & (0x01 << step));
     }
@@ -542,13 +522,14 @@ class TB_3PO : public HemisphereApplet
   
   	int get_next_step(int step)
   	{
-  		if(++step >= num_steps)//ACID_MAX_STEPS)
+      // loop at the current loop point
+  		if(++step >= num_steps)
   		{
   			return 0;
   		}
   		return step;  // Advanced by one
   	}
-  	
+
     // Pass in a probability 0-100 to get that % chance to return 1
   	int rand_bit(int prob)
   	{
@@ -586,6 +567,7 @@ class TB_3PO : public HemisphereApplet
       if(rand_apply_anim > 0)
       {
         --rand_apply_anim;
+        // First the heart jumps, then the die if not locked
         if(rand_apply_anim > 20)
         {
           heart_y = 13;
@@ -601,7 +583,6 @@ class TB_3PO : public HemisphereApplet
   
       // Indicate if seed is randomized on reset pulse, or if it's locked for user editing
       // (If unlocked, this also wiggles on regenerate because the seed has been randomized)
-      //int die_y = rand_apply_anim <= 12 ? icon_y : 15;  // lag behind the heart anim
       gfxBitmap(13, (lock_seed ? 15 : die_y), 8, (lock_seed ? LOCK_ICON : RANDOM_ICON));
   
       // Show the 16-bit seed as 4 hex digits
@@ -631,9 +612,7 @@ class TB_3PO : public HemisphereApplet
       gfxPrint(49, 25, OC::Strings::note_names_unpadded[root]);
   
 
-      // TODO: Show both factors of density with graphics here, gate and pitch delta
       // Density 
-
       int gate_dens = get_on_off_density();
       int pitch_dens = get_pitch_change_density();
       
@@ -655,26 +634,21 @@ class TB_3PO : public HemisphereApplet
         gfxBitmap(49, 35+2, 8, CV_ICON);
       }
       
-      
       //gfxPrint(" (");gfxPrint(density);gfxPrint(")");  // Debug print of actual density value
-  
   
       // Current / total steps
       int display_step = step+1;  // Protocol droids know that humans count from 1
       gfxPrint(1 + pad(100,display_step), 45, display_step); gfxPrint("/");gfxPrint(num_steps);  // Pad x enough to hold width steady
-  
   
       // Show note index (TODO: Tidy)
       gfxPrint(50, 55, notes[step]);
       //gfxBitmap(1, 55, 8, CV_ICON); gfxPos(12, 55); gfxPrintVoltage(pitches[step]);
       
 
-
       // Figure out what available semitone piano pitch is closest to the current step's issued pitch
       // To cram it onto a piano keyboard visually
 
 // TODO
-
 
       
       int iPlayingIndex = (root + notes[step]) % 12;  // TODO: use current scale modulo
