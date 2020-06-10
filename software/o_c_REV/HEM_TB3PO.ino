@@ -100,7 +100,7 @@ class TB_3PO : public HemisphereApplet
         // This is deterministic so if the seed is held, the pattern will not change
         regenerate(seed);
 
-        // Reset to step 1
+        // Reset step
         step = 0;
       }
 
@@ -280,26 +280,26 @@ class TB_3PO : public HemisphereApplet
       }
       else if (cursor == 5)
       {
+        // Set for the next time a pattern is generated
+        //density = constrain(density + direction, 0, 12);
+        density = constrain(density + direction, 0, 14);  // Treated as a bipolar -7 to 7 in practice
+        
+        // TODO: Maybe instead of altering the existing gates, just set a mask to logical-AND against the existing pattern?
+        // Apply the new density live
+        //apply_density();  // TODO: Move to update loop to react to cv as well?
+      } 
+      else if(cursor == 6)
+      {
         // Scale selection
         scale += direction;
         if (scale >= OC::Scales::NUM_SCALES) scale = 0;
         if (scale < 0) scale = OC::Scales::NUM_SCALES - 1;
         quantizer.Configure(OC::Scales::GetScale(scale), 0xffff);
-      } 
-      else if(cursor == 6)
-      {
-        // Root note selection
-        root = constrain(root + direction, 0, 11);
       }
       else if(cursor == 7)
       {
-      	// Set for the next time a pattern is generated
-      	//density = constrain(density + direction, 0, 12);
-        density = constrain(density + direction, 0, 14);  // Treated as a bipolar -7 to 7 in practice
-      	
-      	// TODO: Maybe instead of altering the existing gates, just set a mask to logical-AND against the existing pattern?
-      	// Apply the new density live
-      	//apply_density();  // TODO: Move to update loop to react to cv as well?
+        // Root note selection
+        root = constrain(root + direction, 0, 11);
       }
       else
       {
@@ -325,12 +325,18 @@ class TB_3PO : public HemisphereApplet
       seed = Unpack(data, PackLocation {16,16});
 
       quantizer.Configure(OC::Scales::GetScale(scale), 0xffff);
+
       
+      //scale = constrain(0, OC::Scales::NUM_SCALES-1);
       root = constrain(root, 0, 11);
-      density = constrain(density, 0,14);
+      density = constrain(density, 0, 14); // Internally just positive
       
       // Restore all seed-derived settings!
       regenerate(seed);
+
+      // Reset step
+      step = 0;
+
     }
 
   protected:
@@ -604,12 +610,6 @@ class TB_3PO : public HemisphereApplet
         }
       }
   
-      // Scale and root note select
-      gfxBitmap(1, 25, 8, SCALE_ICON);
-      gfxPrint(12, 25, OC::scale_names_short[scale]);
-      
-      gfxBitmap(42, 25, 8, NOTE4_ICON);
-      gfxPrint(49, 25, OC::Strings::note_names_unpadded[root]);
   
 
       // Density 
@@ -618,21 +618,31 @@ class TB_3PO : public HemisphereApplet
       
       int xd = 5 + 7-gate_dens;
       int yd = (64*pitch_dens)/256;  // Multiply for better fidelity
-      gfxBitmap(12-xd, 35+yd, 8, NOTE4_ICON);
-      gfxBitmap(12, 35-yd, 8, NOTE4_ICON);
-      gfxBitmap(12+xd, 35, 8, NOTE4_ICON);
+      gfxBitmap(12-xd, 25+yd, 8, NOTE4_ICON);
+      gfxBitmap(12, 25-yd, 8, NOTE4_ICON);
+      gfxBitmap(12+xd, 25, 8, NOTE4_ICON);
 
-      gfxPrint(40, 35, gate_dens);
-      if(density < 8)
+      gfxPrint(40, 25, gate_dens);
+      if(density < 7)
       {
-        gfxPrint(33, 35, "-");  // Print minus sign this way to right-align the number
+        gfxPrint(33, 25, "-");  // Print minus sign this way to right-align the number
       }
       
       // Indicate if cv is controlling the density (and locking out manual settings)
       if(density_cv_lock)
       {
-        gfxBitmap(49, 35+2, 8, CV_ICON);
+        gfxBitmap(49, 25+2, 8, CV_ICON);
       }
+
+
+      // Scale and root note select
+      //gfxBitmap(1, 35, 8, SCALE_ICON);    // Icons here just add clutter I think
+      gfxPrint(12, 35, OC::scale_names_short[scale]);
+      
+      //gfxBitmap(42, 35, 8, NOTE4_ICON);
+      gfxPrint(49, 35, OC::Strings::note_names_unpadded[root]);
+
+
       
       //gfxPrint(" (");gfxPrint(density);gfxPrint(")");  // Debug print of actual density value
   
@@ -649,7 +659,6 @@ class TB_3PO : public HemisphereApplet
       // To cram it onto a piano keyboard visually
 
 // TODO
-
       
       int iPlayingIndex = (root + notes[step]) % 12;  // TODO: use current scale modulo
       // Draw notes
@@ -711,7 +720,8 @@ class TB_3PO : public HemisphereApplet
       // Draw edit cursor
       if (cursor == 0)
       {
-        gfxCursor(12, 23, 11); // Seed = auto-randomize / locked-manual
+        // Set length to indicate edit
+        gfxCursor(12, 23, lock_seed ? 11 : 35); // Seed = auto-randomize / locked-manual
       }
       else if (cursor <= 4) // seed, 4 positions (1-4)
       {
@@ -719,15 +729,15 @@ class TB_3PO : public HemisphereApplet
       }
       else if(cursor == 5)
       {
-        gfxCursor(12, 33, 26);  // scale
+        gfxCursor(32, 33, 18);  // density
       }
       else if(cursor == 6)
       {
-        gfxCursor(49, 33, 12);  // root note
+        gfxCursor(12, 43, 26);  // scale
       }
       else if(cursor == 7)
       {
-        gfxCursor(32, 43, 18);  // density
+       gfxCursor(49, 43, 12);  // root note
       }
       else if(cursor == 8)
       {
