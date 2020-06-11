@@ -194,9 +194,8 @@ class TB_3PO : public HemisphereApplet
         // Expo slide (code assist from CBS)
         int k = 0x0003;  // expo constant:  0 = infinite time to settle, 0xFFFF ~= 1, fastest rate
                         // Choose this to give 303-like pitch slide timings given the O&C's update rate
-
-        // k = 0x3 sounds good here with >>=18
-     
+        // k = 0x3 sounds good here with >>=18    
+        
         int x = slide_end_cv;
         x -= curr_pitch_cv;
         x >>= 18;  
@@ -383,6 +382,8 @@ class TB_3PO : public HemisphereApplet
     int slides = 0; 	// Bitfield of slide steps; ((slides >> step) & 1) means slide
     int accents = 0; 	// Bitfield of accent steps; ((accents >> step) & 1) means accent
     int notes[ACID_MAX_STEPS];  // Note values
+
+    int scale_size;  // The size of the scale used to generate the pattern (for octave detection, etc)
     
     // For gate timing as ~32nd notes at tempo, detect clock rate like a clock multiplier
     //int timing_count;
@@ -425,39 +426,70 @@ class TB_3PO : public HemisphereApplet
       // This doesn't really matter since notes are index-based, and the quant scale can be changed live
       // But it will color the random note selection to the scale maybe?
       const braids::Scale & quant_scale = OC::Scales::GetScale(scale);
-      int num_notes = quant_scale.num_notes;
+      scale_size = quant_scale.num_notes;  // Track this scale size for display
 
       // How much pitch variety to use from the available pitches (one of the factors of the 'density' control when < centerpoint)
-      int pitch_change_dens = get_pitch_change_density();
-      
+      int pitch_change_dens = get_pitch_change_density();   
+      int available_pitches = 0;
+      if(scale_size > 0)
+      {
+        if(pitch_change_dens > 7)
+        {
+          available_pitches = scale_size-1;
+        }
+        else if(pitch_change_dens < 2)
+        {
+           // Give the behavior of just the root note (0) at lowest density, and 0&1 at 2nd lowest (for 303 half-step style)
+          available_pitches = pitch_change_dens;
+        }
+        else  // Range 3-7
+        {
+          int range_from_scale = scale_size - 3;
+          if(range_from_scale < 4)  // Ok to saturate at full note count
+          {
+            range_from_scale = 4;
+          }
+          // Range from 2 pitches to just <= full scale available
+          available_pitches = 3 + Proportion(pitch_change_dens-3, 4, range_from_scale);
+          available_pitches = constrain(available_pitches, 1, scale_size -1);
+        }
+      }
+
       for (int s = 0; s < ACID_MAX_STEPS; s++) 
       {
         // Increased chance to repeat the prior note, the smaller the pitch change aspect of 'density' is
         // 0-8, least to most likely to change pitch
-        int force_repeat_note_prob = 96 - (pitch_change_dens * 12);
+        int force_repeat_note_prob = 50 - (pitch_change_dens * 6);
         if(s > 0 && rand_bit(force_repeat_note_prob))
         {
           notes[s] = notes[s-1];
         }
         else
         {
-          if(num_notes == 0)
+          /*
+          if(available_pitches <= 1)
           {
-            // 'none' scale has no notes, so just use root + oct shifts
             notes[s] = 0;
           }
-          else
+          else*/
           {
-            // Grab a note from the scale
-            notes[s] = random(0,num_notes-1);
+            // Grab a random note index from the scale's available pitches
+            // Since this starts at 0, the root note will always be included, and adjacent scale notes are included as the range grows
+            notes[s] = random(0,available_pitches+1);  // Looking at the source, random(min,max) appears to return the range: min to max-1
           }
           // Random oct up or down (Treating octave based on the scale's number of notes)
           if(rand_bit(40))
           {
             // Use 12-note octave if 'none'
-            notes[s] += (num_notes > 0 ? num_notes : 12) * (rand_bit(50) ? -1 : 1);
+            notes[s] += (scale_size > 0 ? scale_size : 12) * (rand_bit(50) ? -1 : 1);
           }
-        }
+        }      
+      }
+
+      // Handle size as semitone scale for display if 'off'
+      if(scale_size == 0)
+      {
+        scale_size = 12;
       }
   	}
   	
@@ -489,7 +521,7 @@ class TB_3PO : public HemisphereApplet
   		for(int i=0; i<ACID_MAX_STEPS; ++i)
   		{
   			// Less probability of consecutive accents
-  			latest = rand_bit((latest ? 5 : 12));
+  			latest = rand_bit((latest ? 7 : 16));
   			accents |= latest;
   			accents <<= 1;
   		}
@@ -641,9 +673,7 @@ class TB_3PO : public HemisphereApplet
       
       //gfxBitmap(42, 35, 8, NOTE4_ICON);
       gfxPrint(49, 35, OC::Strings::note_names_unpadded[root]);
-
-
-      
+ 
       //gfxPrint(" (");gfxPrint(density);gfxPrint(")");  // Debug print of actual density value
   
       // Current / total steps
@@ -651,7 +681,20 @@ class TB_3PO : public HemisphereApplet
       gfxPrint(1 + pad(100,display_step), 45, display_step); gfxPrint("/");gfxPrint(num_steps);  // Pad x enough to hold width steady
   
       // Show note index (TODO: Tidy)
-      gfxPrint(50, 55, notes[step]);
+      //gfxPrint(41, 55, notes[step]);
+      int note = notes[step];
+      if(note < 0)
+      {
+        note += scale_size;  // Convert to lower octave
+        gfxBitmap(41, 54, 8, DOWN_BTN_ICON);
+      }
+      else if(note >= scale_size)
+      {
+        note += scale_size;
+        gfxBitmap(41, 54, 8, UP_BTN_ICON);
+      }
+      gfxPrint(49, 55, note);
+      
       //gfxBitmap(1, 55, 8, CV_ICON); gfxPos(12, 55); gfxPrintVoltage(pitches[step]);
       
 
@@ -660,7 +703,7 @@ class TB_3PO : public HemisphereApplet
 
 // TODO
       
-      int iPlayingIndex = (root + notes[step]) % 12;  // TODO: use current scale modulo
+      int iPlayingIndex = (root + notes[step]) % 12;  // TODO: use current scale modulo?
       // Draw notes
   
       // Draw a TB-303 style octave of a piano keyboard, indicating the playing pitch % by octaves
@@ -668,7 +711,7 @@ class TB_3PO : public HemisphereApplet
       // TODO: This is not accurate! Indices won't work for e.g. pentatonic scale since they should skip notes here
       // Try a cv lookup of the index, followed by quantization to oct/12 instead?
       
-      int x = 4;
+      int x = 1; //4
       int y = 61;
       int keyPatt = 0x054A; // keys encoded as 0=white 1=black, starting at c, backwards:  b  0 0101 0100 1010
       for(int i=0; i<12; ++i)
@@ -693,7 +736,12 @@ class TB_3PO : public HemisphereApplet
         x += 3;
       }
 
-      
+      // Indicate if the current step has an accent
+      if(step_is_accent(step))
+      {
+        gfxPrint(37, 46, "!");
+      }
+
       // Indicate if the current step has a slide
       if(step_is_slid(step))
       {
@@ -706,16 +754,9 @@ class TB_3PO : public HemisphereApplet
       {
         gfxBitmap(52, 46, 8, WAVEFORM_ICON);
       }
-
-      // TODO: Show accent
-      if(step_is_accent(step))
-      {
-        //gfxBitmap(45, 56, 8, WAVEFORM_ICON);
-        gfxPrint(45, 56, "!");
-      }
+     
       
-      // TODO: Show oct up/down arrows
-
+        
       
       // Draw edit cursor
       if (cursor == 0)
