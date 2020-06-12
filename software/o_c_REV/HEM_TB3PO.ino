@@ -617,16 +617,19 @@ class TB_3PO : public HemisphereApplet
       }
 
       // Heart represents the seed/favorite
-      gfxBitmap(1, heart_y, 8, FAVORITE_ICON);
+      //gfxBitmap(1, heart_y, 8, FAVORITE_ICON);
+      gfxBitmap(4, heart_y, 8, FAVORITE_ICON);
   
       // Indicate if seed is randomized on reset pulse, or if it's locked for user editing
       // (If unlocked, this also wiggles on regenerate because the seed has been randomized)
-      gfxBitmap(13, (lock_seed ? 15 : die_y), 8, (lock_seed ? LOCK_ICON : RANDOM_ICON));
+      //gfxBitmap(13, (lock_seed ? 15 : die_y), 8, (lock_seed ? LOCK_ICON : RANDOM_ICON));
+      gfxBitmap(15, (lock_seed ? 15 : die_y), 8, (lock_seed ? LOCK_ICON : RANDOM_ICON));
   
       // Show the 16-bit seed as 4 hex digits
       int disp_seed = seed;   //0xABCD // test display accuracy
       char sz[2]; sz[1] = 0;  // Null terminated string for easy print
-      gfxPos(24, 15);
+      //gfxPos(24, 15);
+      gfxPos(25, 15);
       for(int i=3; i>=0; --i)
       {
         // Grab each nibble in turn, starting with most significant
@@ -647,52 +650,60 @@ class TB_3PO : public HemisphereApplet
       // Density 
       int gate_dens = get_on_off_density();
       int pitch_dens = get_pitch_change_density();
-      
+
+      //gfxLine(9,36, 29, 36, true); // dotted line
       int xd = 5 + 7-gate_dens;
       int yd = (64*pitch_dens)/256;  // Multiply for better fidelity
-      gfxBitmap(12-xd, 25+yd, 8, NOTE4_ICON);
-      gfxBitmap(12, 25-yd, 8, NOTE4_ICON);
-      gfxBitmap(12+xd, 25, 8, NOTE4_ICON);
-
-      gfxPrint(40, 25, gate_dens);
+      gfxBitmap(12-xd, 27+yd, 8, NOTE4_ICON);
+      gfxBitmap(12, 27-yd, 8, NOTE4_ICON);
+      gfxBitmap(12+xd, 27, 8, NOTE4_ICON);
+      
       if(density < 7)
       {
-        gfxPrint(33, 25, "-");  // Print minus sign this way to right-align the number
+        //gfxPrint(33, 25, "-");  // Print minus sign this way to right-align the number
+        gfxPrint(8, 37, "-");  // Print minus sign this way to right-align the number
       }
+      //gfxPrint(40, 25, gate_dens);
+      gfxPrint(14, 37, gate_dens);
       
       // Indicate if cv is controlling the density (and locking out manual settings)
       if(density_cv_lock)
       {
-        gfxBitmap(49, 25+2, 8, CV_ICON);
+        //gfxBitmap(49, 25+2, 8, CV_ICON);
+        gfxBitmap(22, 37, 8, CV_ICON);
       }
-
+      
 
       // Scale and root note select
-      //gfxBitmap(1, 35, 8, SCALE_ICON);    // Icons here just add clutter I think
-      gfxPrint(12, 35, OC::scale_names_short[scale]);
+      //gfxPrint(12, 35, OC::scale_names_short[scale]);
+      gfxPrint(39, 27, OC::scale_names_short[scale]);
       
-      //gfxBitmap(42, 35, 8, NOTE4_ICON);
-      gfxPrint(49, 35, OC::Strings::note_names_unpadded[root]);
+      
+      gfxPrint(45, 36, OC::Strings::note_names_unpadded[root]);
  
       //gfxPrint(" (");gfxPrint(density);gfxPrint(")");  // Debug print of actual density value
   
       // Current / total steps
       int display_step = step+1;  // Protocol droids know that humans count from 1
-      gfxPrint(1 + pad(100,display_step), 45, display_step); gfxPrint("/");gfxPrint(num_steps);  // Pad x enough to hold width steady
+      //gfxPrint(1 + pad(100,display_step), 45, display_step); gfxPrint("/");gfxPrint(num_steps);  // Pad x enough to hold width steady
+      gfxPrint(1+pad(10,display_step), 47, display_step); gfxPrint("/");gfxPrint(num_steps);  // Pad x enough to hold width steady
   
       // Show note index (TODO: Tidy)
       //gfxPrint(41, 55, notes[step]);
       int note = notes[step];
       if(note < 0)
       {
-        note += scale_size;  // Convert to lower octave
+        //note += scale_size;  // Convert to lower octave
         gfxBitmap(41, 54, 8, DOWN_BTN_ICON);
       }
       else if(note >= scale_size)
       {
-        note += scale_size;
+        //note += scale_size;
         gfxBitmap(41, 54, 8, UP_BTN_ICON);
       }
+
+      // Constrain to the scale
+      note = note % scale_size;
       gfxPrint(49, 55, note);
       
       //gfxBitmap(1, 55, 8, CV_ICON); gfxPos(12, 55); gfxPrintVoltage(pitches[step]);
@@ -755,14 +766,12 @@ class TB_3PO : public HemisphereApplet
         gfxBitmap(52, 46, 8, WAVEFORM_ICON);
       }
      
-      
-        
-      
+          
       // Draw edit cursor
       if (cursor == 0)
       {
         // Set length to indicate edit
-        gfxCursor(12, 23, lock_seed ? 11 : 35); // Seed = auto-randomize / locked-manual
+        gfxCursor(14, 23, lock_seed ? 12 : 35); // Seed = auto-randomize / locked-manual
       }
       else if (cursor <= 4) // seed, 4 positions (1-4)
       {
@@ -770,19 +779,22 @@ class TB_3PO : public HemisphereApplet
       }
       else if(cursor == 5)
       {
-        gfxCursor(32, 33, 18);  // density
+        //gfxCursor(32, 33, 18);  // density
+        gfxCursor(9, 34, 14);  // density
       }
       else if(cursor == 6)
       {
-        gfxCursor(12, 43, 26);  // scale
+        //gfxCursor(12, 43, 26);  // scale
+        gfxCursor(38, 34, 26);  // scale
       }
       else if(cursor == 7)
       {
-       gfxCursor(49, 43, 12);  // root note
+       //gfxCursor(49, 43, 12);  // root note
+       gfxCursor(44, 43, 14);  // root note
       }
       else if(cursor == 8)
       {
-        gfxCursor(24, 55-2, 14);  // note count (up a bit to not collide with notes below)
+        gfxCursor(20, 54, 12);  // step
       }
     }
 

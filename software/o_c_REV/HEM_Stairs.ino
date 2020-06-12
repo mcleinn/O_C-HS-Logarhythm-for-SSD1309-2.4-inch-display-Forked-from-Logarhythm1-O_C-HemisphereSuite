@@ -49,9 +49,7 @@ public:
         
         step_cv_lock = 0;
         position_cv_lock = 0;
-        //reset_held_step = 0;
         reset_gate = 0;
-        //rand_anim_time = 0;
         
         reverse = 0;
         cv_out = 0;
@@ -86,7 +84,6 @@ public:
         // Digital Input 1: Reset pulse
         reset_gate = Gate(1);  // For display
         if (Clock(1)) {
-            //reset_held_step = curr_step;  // For display
             curr_step = (dir != 2) ? 0 : steps;  // Go to 0th or last step depending on direction
             reverse = (dir != 2) ? 0 : 1;  // Reset reverse (really just for up/down mode)
             ClockOut(1);  // BOC pulse output
@@ -255,8 +252,6 @@ private:
     int step_cv_lock;       // 1 if cv is controlling the current step (show on display)
     int position_cv_lock;   // 1 if cv is controlling the current step (show on display)
     int reset_gate;         // Track if currently held in reset (show an icon)
-    //int reset_held_step;    // Step when reset was initially asserted (for display)
-    //int rand_anim_time;     // Track wiggling the die when random is applied (for display)
     
     int cursor;     // 0 = steps, 1 = direction, 2 = random
 
