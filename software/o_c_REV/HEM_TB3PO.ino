@@ -57,7 +57,7 @@ class TB_3PO : public HemisphereApplet
       // Init the quantizer for selecting pitches / CVs from
       scale = 29;  // GUNA scale sounds cool   //OC::Scales::SCALE_SEMI; // semi sounds pretty bunk
       quantizer.Init();
-      quantizer.Configure(OC::Scales::GetScale(scale), 0xffff);
+      set_quantizer_scale(scale);
 
       // This quantizer is for displaying a keyboard graphic, mapping the current scale to semitones
       display_semi_quantizer.Init();
@@ -304,7 +304,12 @@ class TB_3PO : public HemisphereApplet
         scale += direction;
         if (scale >= OC::Scales::NUM_SCALES) scale = 0;
         if (scale < 0) scale = OC::Scales::NUM_SCALES - 1;
-        quantizer.Configure(OC::Scales::GetScale(scale), 0xffff);
+        //quantizer.Configure(OC::Scales::GetScale(scale), 0xffff);
+        //const braids::Scale & quant_scale = OC::Scales::GetScale(scale);
+        //quantizer.Configure(quant_scale, 0xffff);
+        //scale_size = quant_scale.num_notes;  // Track this scale size for display
+        set_quantizer_scale(scale);
+
       }
       else if(cursor == 7)
       {
@@ -334,8 +339,8 @@ class TB_3PO : public HemisphereApplet
       density = Unpack(data, PackLocation {12,4});
       seed = Unpack(data, PackLocation {16,16});
 
-      quantizer.Configure(OC::Scales::GetScale(scale), 0xffff);
-
+      //const braids::Scale & quant_scale = OC::Scales::GetScale(scale);
+      set_quantizer_scale(scale);
       
       //scale = constrain(0, OC::Scales::NUM_SCALES-1);
       root = constrain(root, 0, 11);
@@ -419,14 +424,23 @@ class TB_3PO : public HemisphereApplet
     // Get the cv value to use for a given step including root + transpose values
     int get_pitch_for_step(int step_num)
     {
-      int quant_note = notes[step_num] + 64 + root + transpose_note_in;
-      return quantizer.Lookup( constrain(quant_note, 0, 127));
+      //int quant_note = notes[step_num] + 64 + root + transpose_note_in;
+      //int base_note_for_scale = 64;  // 64 should be 0v baseline
+      
+      int quant_note = 64 + notes[step_num] +  root + transpose_note_in;
+
+      int out_note = constrain(quant_note, 0, 127);
+      return quantizer.Lookup( out_note );
+      //return quantizer.Lookup( 64 + notes[step_num]+root);
+      //return quantizer.Lookup( 64 );  // note 64 is definitely 0v=c4 if output directly, on ALL scales
     }
 
     int get_semitone_for_step(int step_num)
     {
-
-      int quant_note = notes[step_num] + 64 + root + transpose_note_in;
+/*
+      //int quant_note = notes[step_num] + 64 + root + transpose_note_in;
+      int base_note_for_scale = 64;  // 64 should be 0v baseline
+      int quant_note = notes[step_num] + base_note_for_scale + root + transpose_note_in;  // c is base transpose, so use its midi note 60
       //int quant_note = (notes[step_num] % scale_size) + 64 + root + transpose_note_in;
       
       //int32_t cv_single_oct = quantizer.Lookup( constrain(quant_note, 0, 127));
@@ -440,7 +454,11 @@ class TB_3PO : public HemisphereApplet
       
       // Note: This accessor for the quantizer's latest note number must be added to braids_quantizer.h:
       //uint16_t GetLatestNoteNumber() { return note_number_;}
-      return display_semi_quantizer.GetLatestNoteNumber() % 12 - 4;   // N.B. -4 moves to c and transpose appears right-- however top 4 notes on keyboard are (predicatably) muted!
+      //return (display_semi_quantizer.GetLatestNoteNumber() - 4) % 12;  // N.B. Move by 4 to move down to 'c' on display for 0 xpose  TODO: Figure out what voltages are going out!
+      return display_semi_quantizer.GetLatestNoteNumber() % 12;
+      */
+
+      return notes[step_num] + root + transpose_note_in;
     }
 
     
@@ -466,7 +484,7 @@ class TB_3PO : public HemisphereApplet
         return;
       }
       
-      randomSeed(seed);  // Ensure random()'s seed at each phase for determinism
+      randomSeed(seed+regenerate_phase);  // Ensure random()'s seed at each phase for determinism (note: offset to decouple phase behavior correllations that would result)
       
       switch(regenerate_phase)
       {
@@ -484,8 +502,8 @@ class TB_3PO : public HemisphereApplet
       // Get the available note count to choose from per oct
       // This doesn't really matter since notes are index-based, and the quant scale can be changed live
       // But it will color the random note selection to the scale maybe?
-      const braids::Scale & quant_scale = OC::Scales::GetScale(scale);
-      scale_size = quant_scale.num_notes;  // Track this scale size for display
+      //const braids::Scale & quant_scale = OC::Scales::GetScale(scale);
+      //scale_size = quant_scale.num_notes;  // Track this scale size for display
 
       // How much pitch variety to use from the available pitches (one of the factors of the 'density' control when < centerpoint)
       int pitch_change_dens = get_pitch_change_density();   
@@ -633,6 +651,12 @@ class TB_3PO : public HemisphereApplet
   		return (random(1, 100) <= prob) ? 1 : 0;
   	}
 
+    void set_quantizer_scale(int new_scale)
+    {
+      const braids::Scale & quant_scale = OC::Scales::GetScale(new_scale);
+      quantizer.Configure(quant_scale, 0xffff);
+      scale_size = quant_scale.num_notes;  // Track this scale size for octaves and display
+    }
 
 /*
     // Determine approximately where a pitch index for the current scale should be mapped
@@ -781,6 +805,9 @@ class TB_3PO : public HemisphereApplet
       
       // TODO: This is not accurate! Indices won't work for e.g. pentatonic scale since they should skip notes here
       // Try a cv lookup of the index, followed by quantization to oct/12 instead?
+
+
+      int keyboard_pitch = curr_step_semitone -4;  // Translate from 0v
       
       int x = 1; //4
       int y = 61;
