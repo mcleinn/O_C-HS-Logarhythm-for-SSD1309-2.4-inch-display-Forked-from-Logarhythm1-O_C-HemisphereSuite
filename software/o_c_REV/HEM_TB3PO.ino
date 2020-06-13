@@ -51,7 +51,7 @@ class TB_3PO : public HemisphereApplet
 
       manual_reset_flag = 0;
       rand_apply_anim = 0;
-
+      curr_step_semitone = 0;
       
       root = 0;
       // Init the quantizer for selecting pitches / CVs from
@@ -60,8 +60,8 @@ class TB_3PO : public HemisphereApplet
       quantizer.Configure(OC::Scales::GetScale(scale), 0xffff);
 
       // This quantizer is for displaying a keyboard graphic, mapping the current scale to semitones
-      //display_semi_quantizer.Init();
-      //display_semi_quantizer.Configure(OC::Scales::GetScale(OC::Scales::SCALE_SEMI), 0xffff);
+      display_semi_quantizer.Init();
+      display_semi_quantizer.Configure(OC::Scales::GetScale(OC::Scales::SCALE_SEMI), 0xffff);
       
       density = 12;
       density_cv_lock = 0;
@@ -103,6 +103,7 @@ class TB_3PO : public HemisphereApplet
         // Reset step
         step = 0;
       }
+
 
       // Control transpose from cv1 (Very fun to wiggle)
       transpose_note_in = 0;
@@ -166,6 +167,10 @@ class TB_3PO : public HemisphereApplet
           int gate_time = (cycle_time / 2);  // multiplier of 2
           gate_off_clock = this_tick + gate_time;
         }
+
+        // When changing steps, compute the nearest semitone at the base octave to show on the keyboard
+        curr_step_semitone = get_semitone_for_step(step);
+        
       }
 
       // Update the clock multiplier for gate off timings
@@ -222,7 +227,13 @@ class TB_3PO : public HemisphereApplet
       
       // Gate out (as CV)
       Out(1, curr_gate_cv);
-      
+
+
+      // Timesliced generation of new patterns, if triggered
+      // Do this last to not interfere with the body of the time for this hemisphere's update
+      // (This is speculation without knowing how to best profile performance on this system)
+      update_regeneration();
+     
     }
 
     void View() {
@@ -352,7 +363,7 @@ class TB_3PO : public HemisphereApplet
     int cursor = 0;
 
     braids::Quantizer quantizer;  // Helper for note index --> pitch cv
-    //braids::Quantizer display_semi_quantizer;  // Quantizer to interpret the current note for display on a keyboard
+    braids::Quantizer display_semi_quantizer;  // Quantizer to interpret the current note for display on a keyboard
     
   
     // User settings
@@ -361,7 +372,7 @@ class TB_3PO : public HemisphereApplet
     int lock_seed;  // If 1, the seed won't randomize (and manual editing is enabled)
     uint16_t seed;  // The random seed that deterministically builds the sequence
     
-    int scale;      // Scale
+    int scale;      // Active quantization & generation scale
     uint8_t root;   // Root note
 
     uint8_t density;  // The density parameter controls a couple of things at once. Its 0-14 value is mapped to -7..+7 range
@@ -399,26 +410,74 @@ class TB_3PO : public HemisphereApplet
     int slide_end_cv = 0;
 
     // Display
+    int curr_step_semitone = 0;  // The pitch converted to nearest semitone, for showing as an index onto the keyboard
+    
     int rand_apply_anim = 0;  // Countdown to animate icons for when regenerate occurs
 
-
+    int regenerate_phase = 0;  // Split up random generation over multiple frames
+  
     // Get the cv value to use for a given step including root + transpose values
     int get_pitch_for_step(int step_num)
     {
       int quant_note = notes[step_num] + 64 + root + transpose_note_in;
       return quantizer.Lookup( constrain(quant_note, 0, 127));
     }
+
+    int get_semitone_for_step(int step_num)
+    {
+
+      int quant_note = notes[step_num] + 64 + root + transpose_note_in;
+      //int quant_note = (notes[step_num] % scale_size) + 64 + root + transpose_note_in;
+      
+      //int32_t cv_single_oct = quantizer.Lookup( constrain(quant_note, 0, 127));
+      // Now subject the octave-constained cv to quantization to semitones to map approximately onto a piano keyboard
+      // Note: retval is unneeded because the note number it picks will be queried here
+      //display_semi_quantizer.Process(cv_single_oct, 0, 0);  // Use root == 0 to start at c
+
+
+      int32_t cv_note = quantizer.Lookup( constrain(quant_note, 0, 127));
+      display_semi_quantizer.Process(cv_note, 0, 0);  // Use root == 0 to start at c
+      
+      // Note: This accessor for the quantizer's latest note number must be added to braids_quantizer.h:
+      //uint16_t GetLatestNoteNumber() { return note_number_;}
+      return display_semi_quantizer.GetLatestNoteNumber() % 12 - 4;   // N.B. -4 moves to c and transpose appears right-- however top 4 notes on keyboard are (predicatably) muted!
+    }
+
     
   	// Generate the sequence deterministically using the seed
   	void regenerate(int seed)
   	{
-		  randomSeed(seed);  // Ensure random()'s seed
-  		regenerate_pitches();
-  		apply_density();
-  
+		  //randomSeed(seed);  // Ensure random()'s seed 
+      
+      //regenerate_pitches();
+  		//apply_density();
+      regenerate_phase = 1;  // Set to regenerate on loop
+      
       rand_apply_anim = 40;  // Show that regenerate occured (anim for this many display updates)
   	}
-  	
+
+
+    // Amortize random generation over multiple frames
+    // Without having profiled this properly, I'm less concerned about overrunning isr times alloted to this app if it's amortized
+    void update_regeneration()
+    {
+      if(regenerate_phase == 0)
+      {
+        return;
+      }
+      
+      randomSeed(seed);  // Ensure random()'s seed at each phase for determinism
+      
+      switch(regenerate_phase)
+      {
+        case 1: regenerate_pitches(); ++regenerate_phase; break;
+        case 2: apply_density(); regenerate_phase = 0;break;
+        default: break;
+      }
+    }
+
+    
+    
     // Generate the notes sequence based on the seed and modified by density
     void regenerate_pitches()
     {
@@ -546,26 +605,26 @@ class TB_3PO : public HemisphereApplet
       return constrain(density, 0,8);  // Note that the right half of the slider is clamped to full range
     }
  
-    bool step_is_gated(int step) {
-        return (gates & (0x01 << step));
+    bool step_is_gated(int step_num) {
+        return (gates & (0x01 << step_num));
     }
     
-    bool step_is_slid(int step) {
-        return (slides & (0x01 << step));
+    bool step_is_slid(int step_num) {
+        return (slides & (0x01 << step_num));
     }
     
-    bool step_is_accent(int step) {
-        return (accents & (0x01 << step));
+    bool step_is_accent(int step_num) {
+        return (accents & (0x01 << step_num));
     }
   
-  	int get_next_step(int step)
+  	int get_next_step(int step_num)
   	{
       // loop at the current loop point
-  		if(++step >= num_steps)
+  		if(++step_num >= num_steps)
   		{
   			return 0;
   		}
-  		return step;  // Advanced by one
+  		return step_num;  // Advanced by one
   	}
 
     // Pass in a probability 0-100 to get that % chance to return 1
@@ -703,8 +762,9 @@ class TB_3PO : public HemisphereApplet
       }
 
       // Constrain to the scale
-      note = note % scale_size;
-      gfxPrint(49, 55, note);
+//      note = note % scale_size;
+//      gfxPrint(49, 55, note);
+        gfxPrint(49, 55, curr_step_semitone);
       
       //gfxBitmap(1, 55, 8, CV_ICON); gfxPos(12, 55); gfxPrintVoltage(pitches[step]);
       
@@ -714,7 +774,7 @@ class TB_3PO : public HemisphereApplet
 
 // TODO
       
-      int iPlayingIndex = (root + notes[step]) % 12;  // TODO: use current scale modulo?
+      //int iPlayingIndex = (root + notes[step]) % 12;  // TODO: use current scale modulo?
       // Draw notes
   
       // Draw a TB-303 style octave of a piano keyboard, indicating the playing pitch % by octaves
@@ -734,7 +794,8 @@ class TB_3PO : public HemisphereApplet
         // Two white keys in a row E and F
         if( i == 5 ) x+=3;
   
-        if(iPlayingIndex == i && step_is_gated(step))  // Only render a pitch if gated
+        //if(iPlayingIndex == i && step_is_gated(step))  // Only render a pitch if gated
+        if(curr_step_semitone == i && step_is_gated(step))  // Only render a pitch if gated
         {
           //gfxFrame(x-1, y-1, 5, 4);  // Larger outline frame
           gfxRect(x-1, y-1, 5, 4);  // Larger box
