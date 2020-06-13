@@ -66,6 +66,10 @@ public:
         {
           int num = ProportionCV(In(0), HEM_STAIRS_MAX_STEPS);  // Use this range so it's easy to reach max-1 just before 5v
           num = constrain(num, 0, HEM_STAIRS_MAX_STEPS-1);      // Constrain to max-1
+// Test for the bug where TB-3PO (left hemisphere) seems to overwrite 'steps' sometimes if TB-3PO is processing CV0 -- maybe a bug between applets due to TB-3PO overrunning its controller or display timeslices?
+// TESTED: Commenting out the write to 'steps' here solves the issue, so next try:
+//      - Running another app instead of TB-3PO in the left hemisphere, that takes CV0 in and seeing if it can write steps here
+//      - If that can't cause the issue, explore bypassing TB-3PO's random generation to see if it's a problem and needs timeslicing (probably a good idea to split it in two at least anyway!)
           steps = num;  // Just overwrite user values
           step_cv_lock = 1;  // Display this since it locks out user input
         }
@@ -260,7 +264,7 @@ private:
     void DrawDisplay()
     {
       // Show a stairs icon followed by steps value
-      gfxBitmap(1, 15, 8, STAIRS_ICON); gfxPrint(16,15,steps);
+      gfxBitmap(1, 15, 8, STAIRS_ICON); gfxPrint(16,15,steps+1);
       if(step_cv_lock)
       {
         gfxBitmap(16, 25, 8, CV_ICON);
@@ -282,7 +286,7 @@ private:
       }
 
       // current/total steps
-      gfxPrint(6+pad(100,curr_step), 55, curr_step); gfxPrint("/");gfxPrint(steps);  // Pad x enough to hold width steady
+      gfxPrint(6+pad(100,curr_step+1), 55, curr_step+1); gfxPrint("/");gfxPrint(steps+1);  // Pad x enough to hold width steady
       if(reset_gate)
       {
         gfxBitmap(1, 55, 8, RESET_ICON);  // Indicate that Reset is holding the step
