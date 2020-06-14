@@ -291,12 +291,7 @@ class TB_3PO : public HemisphereApplet
       else if (cursor == 5)
       {
         // Set for the next time a pattern is generated
-        //density = constrain(density + direction, 0, 12);
         density = constrain(density + direction, 0, 14);  // Treated as a bipolar -7 to 7 in practice
-        
-        // TODO: Maybe instead of altering the existing gates, just set a mask to logical-AND against the existing pattern?
-        // Apply the new density live
-        //apply_density();  // TODO: Move to update loop to react to cv as well?
       } 
       else if(cursor == 6)
       {
@@ -304,12 +299,8 @@ class TB_3PO : public HemisphereApplet
         scale += direction;
         if (scale >= OC::Scales::NUM_SCALES) scale = 0;
         if (scale < 0) scale = OC::Scales::NUM_SCALES - 1;
-        //quantizer.Configure(OC::Scales::GetScale(scale), 0xffff);
-        //const braids::Scale & quant_scale = OC::Scales::GetScale(scale);
-        //quantizer.Configure(quant_scale, 0xffff);
-        //scale_size = quant_scale.num_notes;  // Track this scale size for display
+        // Apply to the quantizer
         set_quantizer_scale(scale);
-
       }
       else if(cursor == 7)
       {
@@ -349,9 +340,8 @@ class TB_3PO : public HemisphereApplet
       // Restore all seed-derived settings!
       regenerate(seed);
 
-      // Reset step
+      // Reset step position
       step = 0;
-
     }
 
   protected:
@@ -372,9 +362,13 @@ class TB_3PO : public HemisphereApplet
     
   
     // User settings
+    
+    // Bool
     int manual_reset_flag = 0;  // Manual trigger to reset/regen
 
+    // bool 
     int lock_seed;  // If 1, the seed won't randomize (and manual editing is enabled)
+    
     uint16_t seed;  // The random seed that deterministically builds the sequence
     
     int scale;      // Active quantization & generation scale
@@ -385,21 +379,24 @@ class TB_3PO : public HemisphereApplet
                       // For values mapped < 0 (e.g. left range,) the more negative the value is, the less chance consecutive pitches will
                       // change from the prior pitch, giving repeating lines (note: octave jumps still apply)
 
-    int density_cv_lock;  // Tracks if density is under cv control (can't change manually)
+    // Bool
+    uint8_t density_cv_lock;  // Tracks if density is under cv control (can't change manually)
 
-    int num_steps;        // How many steps of the generated pattern to play before looping
+    uint8_t num_steps;        // How many steps of the generated pattern to play before looping
     
     // Playback
-    int step = 0;           // Current sequencer step
-    int transpose_note_in;  // Current transposition, in note numbers
+    uint8_t step = 0;           // Current sequencer step
+    int transpose_note_in;      // Current transposition from cv in (initially a cv value)
 
     // Generated sequence data
-    int gates = 0; 		// Bitfield of gates;  ((gates >> step) & 1) means gate
-    int slides = 0; 	// Bitfield of slide steps; ((slides >> step) & 1) means slide
-    int accents = 0; 	// Bitfield of accent steps; ((accents >> step) & 1) means accent
-    int notes[ACID_MAX_STEPS];  // Note values
+    uint16_t gates = 0; 		// Bitfield of gates;  ((gates >> step) & 1) means gate
+    uint16_t slides = 0; 	// Bitfield of slide steps; ((slides >> step) & 1) means slide
+    uint16_t accents = 0;   // Bitfield of accent steps; ((accents >> step) & 1) means accent
+    uint16_t oct_ups = 0;   // Bitfield of octave ups
+    uint16_t oct_downs = 0;   // Bitfield of octave downs
+    uint8_t notes[ACID_MAX_STEPS];  // Note values
 
-    int scale_size;  // The size of the scale used to generate the pattern (for octave detection, etc)
+    uint8_t scale_size;  // The size of the scale used to generate the pattern (for octave detection, etc)
     
     // For gate timing as ~32nd notes at tempo, detect clock rate like a clock multiplier
     //int timing_count;
@@ -407,19 +404,19 @@ class TB_3PO : public HemisphereApplet
     int cycle_time;     // Cycle time between the last two clock inputs
 
     // CV output values
-    int curr_gate_cv = 0;
-    int curr_pitch_cv = 0;
+    uint32_t curr_gate_cv = 0;
+    uint32_t curr_pitch_cv = 0;
 
     // Pitch slide cv tracking
-    int slide_start_cv = 0;
-    int slide_end_cv = 0;
+    uint32_t slide_start_cv = 0;
+    uint32_t slide_end_cv = 0;
 
     // Display
     int curr_step_semitone = 0;  // The pitch converted to nearest semitone, for showing as an index onto the keyboard
     
-    int rand_apply_anim = 0;  // Countdown to animate icons for when regenerate occurs
+    uint8_t rand_apply_anim = 0;  // Countdown to animate icons for when regenerate occurs
 
-    int regenerate_phase = 0;  // Split up random generation over multiple frames
+    uint8_t regenerate_phase = 0;  // Split up random generation over multiple frames
   
     // Get the cv value to use for a given step including root + transpose values
     int get_pitch_for_step(int step_num)
@@ -429,51 +426,38 @@ class TB_3PO : public HemisphereApplet
       
       int quant_note = 64 + notes[step_num] +  root + transpose_note_in;
 
+      // Transpose by one octave up or down if flagged to (note this is one full span of whatever scale is active to give doubling octave behavior)
+      if(step_is_oct_up(step_num))
+      {
+        quant_note += scale_size;
+      }
+      else if(step_is_oct_down(step_num))
+      {
+        quant_note -= scale_size;
+      }
+
       int out_note = constrain(quant_note, 0, 127);
       return quantizer.Lookup( out_note );
-      //return quantizer.Lookup( 64 + notes[step_num]+root);
       //return quantizer.Lookup( 64 );  // note 64 is definitely 0v=c4 if output directly, on ALL scales
     }
 
     int get_semitone_for_step(int step_num)
     {
-/*
-      //int quant_note = notes[step_num] + 64 + root + transpose_note_in;
-      int base_note_for_scale = 64;  // 64 should be 0v baseline
-      int quant_note = notes[step_num] + base_note_for_scale + root + transpose_note_in;  // c is base transpose, so use its midi note 60
-      //int quant_note = (notes[step_num] % scale_size) + 64 + root + transpose_note_in;
-      
-      //int32_t cv_single_oct = quantizer.Lookup( constrain(quant_note, 0, 127));
-      // Now subject the octave-constained cv to quantization to semitones to map approximately onto a piano keyboard
-      // Note: retval is unneeded because the note number it picks will be queried here
-      //display_semi_quantizer.Process(cv_single_oct, 0, 0);  // Use root == 0 to start at c
-
-
+      // Don't add in octaves-- use the current quantizer limited to the base octave
+      int quant_note = 64 + notes[step_num] + root;// + transpose_note_in;
       int32_t cv_note = quantizer.Lookup( constrain(quant_note, 0, 127));
       display_semi_quantizer.Process(cv_note, 0, 0);  // Use root == 0 to start at c
-      
-      // Note: This accessor for the quantizer's latest note number must be added to braids_quantizer.h:
-      //uint16_t GetLatestNoteNumber() { return note_number_;}
-      //return (display_semi_quantizer.GetLatestNoteNumber() - 4) % 12;  // N.B. Move by 4 to move down to 'c' on display for 0 xpose  TODO: Figure out what voltages are going out!
       return display_semi_quantizer.GetLatestNoteNumber() % 12;
-      */
-
-      return notes[step_num] + root + transpose_note_in;
+      //return notes[step_num] + root + transpose_note_in;  // Temp
     }
 
     
-  	// Generate the sequence deterministically using the seed
+  	// Trigger generating the sequence deterministically using the seed (over the next couple of Controller() calls)
   	void regenerate(int seed)
   	{
-		  //randomSeed(seed);  // Ensure random()'s seed 
-      
-      //regenerate_pitches();
-  		//apply_density();
       regenerate_phase = 1;  // Set to regenerate on loop
-      
-      rand_apply_anim = 40;  // Show that regenerate occured (anim for this many display updates)
+      rand_apply_anim = 40;  // Show that regenerate started (anim for this many display updates)
   	}
-
 
     // Amortize random generation over multiple frames
     // Without having profiled this properly, I'm less concerned about overrunning isr times alloted to this app if it's amortized
@@ -494,8 +478,7 @@ class TB_3PO : public HemisphereApplet
       }
     }
 
-    
-    
+      
     // Generate the notes sequence based on the seed and modified by density
     void regenerate_pitches()
     {
@@ -532,6 +515,9 @@ class TB_3PO : public HemisphereApplet
         }
       }
 
+      // Set notes and  octave up / octave down bitvectors
+      oct_ups = 0;
+      oct_downs = 0;
       for (int s = 0; s < ACID_MAX_STEPS; s++) 
       {
         // Increased chance to repeat the prior note, the smaller the pitch change aspect of 'density' is
@@ -554,12 +540,25 @@ class TB_3PO : public HemisphereApplet
             // Since this starts at 0, the root note will always be included, and adjacent scale notes are included as the range grows
             notes[s] = random(0,available_pitches+1);  // Looking at the source, random(min,max) appears to return the range: min to max-1
           }
+          
           // Random oct up or down (Treating octave based on the scale's number of notes)
           if(rand_bit(40))
           {
-            // Use 12-note octave if 'none'
-            notes[s] += (scale_size > 0 ? scale_size : 12) * (rand_bit(50) ? -1 : 1);
+            // Removed: use bitvectors instead so scale can change live and still do octaves correctly
+            //notes[s] += (scale_size > 0 ? scale_size : 12) * (rand_bit(50) ? -1 : 1);    // Use 12-note octave if 'none'
+            if(rand_bit(50))
+            {
+              oct_ups |= 0x1;
+            }
+            else
+            {
+              oct_downs |= 0x1;
+            }
+            
           }
+          oct_ups <<= 1;
+          oct_downs <<= 1;
+          
         }      
       }
 
@@ -573,35 +572,34 @@ class TB_3PO : public HemisphereApplet
   	// Change pattern density without affecting pitches
   	void apply_density()
   	{
-  		int latest = 0; // Track previous bit for some algos
+  		int latest_slide = 0; // Track previous bit for some algos
+      int latest_accent = 0; // Track previous bit for some algos
   		
   		gates = 0;
       // Get gate probability from the 'density' value
       int on_off_dens = get_on_off_density();
       int densProb = 10 + on_off_dens * 14;  // Should start >0 and reach 100+
+
+      slides = 0;
+      accents = 0;
+
+      // Apply to each step
   		for(int i=0; i<ACID_MAX_STEPS; ++i)
   		{
   			gates |= rand_bit(densProb);
   			gates <<= 1;
+
+        // Less probability of consecutive slides
+        latest_slide = rand_bit((latest_slide ? 10 : 18));
+        slides |= latest_slide;
+        slides <<= 1;
+        
+        // Less probability of consecutive accents
+        latest_accent = rand_bit((latest_accent ? 7 : 16));
+        accents |= latest_accent;
+        accents <<= 1;
   		}
-  
-  		slides = 0;
-  		for(int i=0; i<ACID_MAX_STEPS; ++i)
-  		{
-  		  // Less probability of consecutive slides
-  			latest = rand_bit((latest ? 10 : 18));
-  			slides |= latest;
-  			slides <<= 1;
-  		}
-  
-  		accents = 0;
-  		for(int i=0; i<ACID_MAX_STEPS; ++i)
-  		{
-  			// Less probability of consecutive accents
-  			latest = rand_bit((latest ? 7 : 16));
-  			accents |= latest;
-  			accents <<= 1;
-  		}
+     
   	}
 
     // Get on/off likelihood from the current value of 'density'
@@ -634,6 +632,15 @@ class TB_3PO : public HemisphereApplet
     bool step_is_accent(int step_num) {
         return (accents & (0x01 << step_num));
     }
+
+    bool step_is_oct_up(int step_num){
+       return (oct_ups & (0x01 << step_num));
+    }
+    
+    bool step_is_oct_down(int step_num){
+       return (oct_downs & (0x01 << step_num));
+    }
+    
   
   	int get_next_step(int step_num)
   	{
@@ -657,28 +664,6 @@ class TB_3PO : public HemisphereApplet
       quantizer.Configure(quant_scale, 0xffff);
       scale_size = quant_scale.num_notes;  // Track this scale size for octaves and display
     }
-
-/*
-    // Determine approximately where a pitch index for the current scale should be mapped
-    // onto a semitone scale keyboard (just for display purposes, mostly so western note subset scales look right!)
-    int map_cv_to_piano_pitch(playing_scale_note_index)
-    {
-      // Get details from current scale
-      const braids::Scale & quant_scale = OC::Scales::GetScale(scale);
-      int num_notes = quant_scale.num_notes;
-
-
-      // This won't work: negative offsets go backwards in scale
-      //eplaying_scale_note_index %= num_notes;  // Trim down to root index
-
-      //int playing_cv = 
-
-      const braids::Scale & semitone_scale = OC::Scales::GetScale(OC::Scales::SCALE_SEMI);
-      
-      
-      
-    }
-  */
   
     void DrawGraphics()
     {
@@ -700,18 +685,15 @@ class TB_3PO : public HemisphereApplet
       }
 
       // Heart represents the seed/favorite
-      //gfxBitmap(1, heart_y, 8, FAVORITE_ICON);
       gfxBitmap(4, heart_y, 8, FAVORITE_ICON);
   
       // Indicate if seed is randomized on reset pulse, or if it's locked for user editing
       // (If unlocked, this also wiggles on regenerate because the seed has been randomized)
-      //gfxBitmap(13, (lock_seed ? 15 : die_y), 8, (lock_seed ? LOCK_ICON : RANDOM_ICON));
       gfxBitmap(15, (lock_seed ? 15 : die_y), 8, (lock_seed ? LOCK_ICON : RANDOM_ICON));
   
       // Show the 16-bit seed as 4 hex digits
       int disp_seed = seed;   //0xABCD // test display accuracy
       char sz[2]; sz[1] = 0;  // Null terminated string for easy print
-      //gfxPos(24, 15);
       gfxPos(25, 15);
       for(int i=3; i>=0; --i)
       {
@@ -728,8 +710,6 @@ class TB_3PO : public HemisphereApplet
         }
       }
   
-  
-
       // Density 
       int gate_dens = get_on_off_density();
       int pitch_dens = get_pitch_change_density();
@@ -743,25 +723,18 @@ class TB_3PO : public HemisphereApplet
       
       if(density < 7)
       {
-        //gfxPrint(33, 25, "-");  // Print minus sign this way to right-align the number
         gfxPrint(8, 37, "-");  // Print minus sign this way to right-align the number
       }
-      //gfxPrint(40, 25, gate_dens);
       gfxPrint(14, 37, gate_dens);
       
       // Indicate if cv is controlling the density (and locking out manual settings)
       if(density_cv_lock)
       {
-        //gfxBitmap(49, 25+2, 8, CV_ICON);
         gfxBitmap(22, 37, 8, CV_ICON);
       }
       
-
       // Scale and root note select
-      //gfxPrint(12, 35, OC::scale_names_short[scale]);
       gfxPrint(39, 27, OC::scale_names_short[scale]);
-      
-      
       gfxPrint(45, 36, OC::Strings::note_names_unpadded[root]);
  
       //gfxPrint(" (");gfxPrint(density);gfxPrint(")");  // Debug print of actual density value
@@ -771,45 +744,29 @@ class TB_3PO : public HemisphereApplet
       //gfxPrint(1 + pad(100,display_step), 45, display_step); gfxPrint("/");gfxPrint(num_steps);  // Pad x enough to hold width steady
       gfxPrint(1+pad(10,display_step), 47, display_step); gfxPrint("/");gfxPrint(num_steps);  // Pad x enough to hold width steady
   
-      // Show note index (TODO: Tidy)
-      //gfxPrint(41, 55, notes[step]);
-      int note = notes[step];
-      if(note < 0)
+      // Show octave icons
+      if(step_is_oct_down(step))
       {
-        //note += scale_size;  // Convert to lower octave
         gfxBitmap(41, 54, 8, DOWN_BTN_ICON);
       }
-      else if(note >= scale_size)
+      else if(step_is_oct_up(step))
       {
-        //note += scale_size;
         gfxBitmap(41, 54, 8, UP_BTN_ICON);
       }
 
       // Constrain to the scale
-//      note = note % scale_size;
-//      gfxPrint(49, 55, note);
-        gfxPrint(49, 55, curr_step_semitone);
+      //gfxPrint(49, 55, curr_step_semitone);
+
+      int keyboard_pitch = curr_step_semitone -4;  // Translate from 0v
+      if(keyboard_pitch < 0) keyboard_pitch+=12;  // Deal with c being at the start, not middle of keyboard
+      
+      gfxPrint(49, 55, keyboard_pitch);
       
       //gfxBitmap(1, 55, 8, CV_ICON); gfxPos(12, 55); gfxPrintVoltage(pitches[step]);
       
 
-      // Figure out what available semitone piano pitch is closest to the current step's issued pitch
-      // To cram it onto a piano keyboard visually
-
-// TODO
-      
-      //int iPlayingIndex = (root + notes[step]) % 12;  // TODO: use current scale modulo?
-      // Draw notes
-  
-      // Draw a TB-303 style octave of a piano keyboard, indicating the playing pitch % by octaves
-      
-      // TODO: This is not accurate! Indices won't work for e.g. pentatonic scale since they should skip notes here
-      // Try a cv lookup of the index, followed by quantization to oct/12 instead?
-
-
-      int keyboard_pitch = curr_step_semitone -4;  // Translate from 0v
-      
-      int x = 1; //4
+      // Draw a TB-303 style octave of a piano keyboard, indicating the playing pitch 
+      int x = 1;
       int y = 61;
       int keyPatt = 0x054A; // keys encoded as 0=white 1=black, starting at c, backwards:  b  0 0101 0100 1010
       for(int i=0; i<12; ++i)
@@ -822,9 +779,8 @@ class TB_3PO : public HemisphereApplet
         if( i == 5 ) x+=3;
   
         //if(iPlayingIndex == i && step_is_gated(step))  // Only render a pitch if gated
-        if(curr_step_semitone == i && step_is_gated(step))  // Only render a pitch if gated
+        if(keyboard_pitch == i && step_is_gated(step))  // Only render a pitch if gated
         {
-          //gfxFrame(x-1, y-1, 5, 4);  // Larger outline frame
           gfxRect(x-1, y-1, 5, 4);  // Larger box
           
         }
@@ -853,12 +809,11 @@ class TB_3PO : public HemisphereApplet
       {
         gfxBitmap(52, 46, 8, WAVEFORM_ICON);
       }
-     
-          
+            
       // Draw edit cursor
       if (cursor == 0)
       {
-        // Set length to indicate edit
+        // Set length to indicate length
         gfxCursor(14, 23, lock_seed ? 12 : 35); // Seed = auto-randomize / locked-manual
       }
       else if (cursor <= 4) // seed, 4 positions (1-4)
@@ -867,17 +822,14 @@ class TB_3PO : public HemisphereApplet
       }
       else if(cursor == 5)
       {
-        //gfxCursor(32, 33, 18);  // density
         gfxCursor(9, 34, 14);  // density
       }
       else if(cursor == 6)
       {
-        //gfxCursor(12, 43, 26);  // scale
         gfxCursor(38, 34, 26);  // scale
       }
       else if(cursor == 7)
       {
-       //gfxCursor(49, 43, 12);  // root note
        gfxCursor(44, 43, 14);  // root note
       }
       else if(cursor == 8)
