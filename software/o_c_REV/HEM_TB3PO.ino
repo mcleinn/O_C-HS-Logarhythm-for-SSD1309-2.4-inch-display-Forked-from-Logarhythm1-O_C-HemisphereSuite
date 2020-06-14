@@ -404,12 +404,12 @@ class TB_3PO : public HemisphereApplet
     int cycle_time;     // Cycle time between the last two clock inputs
 
     // CV output values
-    uint32_t curr_gate_cv = 0;
-    uint32_t curr_pitch_cv = 0;
+    int32_t curr_gate_cv = 0;
+    int32_t curr_pitch_cv = 0;
 
     // Pitch slide cv tracking
-    uint32_t slide_start_cv = 0;
-    uint32_t slide_end_cv = 0;
+    int32_t slide_start_cv = 0;
+    int32_t slide_end_cv = 0;
 
     // Display
     int curr_step_semitone = 0;  // The pitch converted to nearest semitone, for showing as an index onto the keyboard
@@ -448,7 +448,6 @@ class TB_3PO : public HemisphereApplet
       int32_t cv_note = quantizer.Lookup( constrain(quant_note, 0, 127));
       display_semi_quantizer.Process(cv_note, 0, 0);  // Use root == 0 to start at c
       return display_semi_quantizer.GetLatestNoteNumber() % 12;
-      //return notes[step_num] + root + transpose_note_in;  // Temp
     }
 
     
