@@ -47,11 +47,11 @@ public:
         cursor = 0;
         curr_step = 0;
         
-        step_cv_lock = 0;
-        position_cv_lock = 0;
-        reset_gate = 0;
+        step_cv_lock = false;
+        position_cv_lock = false;
+        reset_gate = false;
         
-        reverse = 0;
+        reverse = false;
         cv_out = 0;
         cv_rand = 0;
     }
@@ -61,27 +61,23 @@ public:
         int curr_step_pv = curr_step;  // Detect if an input changes the step this update
         
         // CV input 0 (Step count)
-        step_cv_lock = 0;  // Track if cv is controlling the step count, for display
+        step_cv_lock = false;  // Track if cv is controlling the step count, for display
         if(DetentedIn(0) > 0)   // Is CV greater than 0v by a deadzone amount?
         {
           int num = ProportionCV(In(0), HEM_STAIRS_MAX_STEPS);  // Use this range so it's easy to reach max-1 just before 5v
           num = constrain(num, 0, HEM_STAIRS_MAX_STEPS-1);      // Constrain to max-1
-// Test for the bug where TB-3PO (left hemisphere) seems to overwrite 'steps' sometimes if TB-3PO is processing CV0 -- maybe a bug between applets due to TB-3PO overrunning its controller or display timeslices?
-// TESTED: Commenting out the write to 'steps' here solves the issue, so next try:
-//      - Running another app instead of TB-3PO in the left hemisphere, that takes CV0 in and seeing if it can write steps here
-//      - If that can't cause the issue, explore bypassing TB-3PO's random generation to see if it's a problem and needs timeslicing (probably a good idea to split it in two at least anyway!)
           steps = num;  // Just overwrite user values
-          step_cv_lock = 1;  // Display this since it locks out user input
+          step_cv_lock = true;  // Display this since it locks out user input
         }
   
         // CV input 1 (Position control)
-        position_cv_lock = 0;  // Track if position is under cv control
+        position_cv_lock = false;  // Track if position is under cv control
         if(DetentedIn(1) > 0)   // Is CV greater than 0v by a deadzone amount?
         {
           int num = ProportionCV(In(1), steps);
           num = constrain(num, 0, steps);
           curr_step = num;
-          position_cv_lock = 1;
+          position_cv_lock = true;
         }
 
 
@@ -96,7 +92,7 @@ public:
         // Digital Input 2: Clock pulse
         if (Clock(0) && !reset_gate && !position_cv_lock)  // Don't clock if currently within a reset pulse, so overlapping clock+reset pulses go to step 0 instead of 1 and reset can "hold"
         {
-            if(reverse == 0)
+            if(!reverse)
             {
               // Forward direction
               if(++curr_step > steps)
@@ -109,7 +105,7 @@ public:
                 }
                 else  // up/down
                 {
-                  reverse = 1;
+                  reverse = true;
                   curr_step = (steps > 0 ? steps-1 : 0);  // Go to step before last unless too few steps
                 }
               }
@@ -143,7 +139,7 @@ public:
                   }
                   else  // up/down
                   {
-                    reverse = 0;
+                    reverse = false;
                     curr_step = (steps > 0 ? 1 : 0);  // Go to 1 unless too few steps
                   }                  
                 }                
@@ -166,21 +162,14 @@ public:
           }
         }
 
-
-
-        //if(!reset_gate)  // Don't update cv if reset gate is on-- this gives sample & hold of the last value until reset is released
-        //{
-        
-          // Steps will either be counting up or down, but it will always be an index into the cv range
-          cv_out = Proportion(curr_step, steps, HEMISPHERE_MAX_CV);  // 0-5v, scaled with fixed-point
-          if(rand && (curr_step != 0 && curr_step != steps))  // Don't randomize 1st and last steps so it always hits 0 and 5v?
-          {
-            cv_out += cv_rand;
-            cv_out = constrain(cv_out, 0, HEMISPHERE_MAX_CV);  // (Not actually necessary if not randomizing start/end)        
-          }
-        
-        //}
-        
+        // Steps will either be counting up or down, but it will always be an index into the cv range
+        cv_out = Proportion(curr_step, steps, HEMISPHERE_MAX_CV);  // 0-5v, scaled with fixed-point
+        if(rand && (curr_step != 0 && curr_step != steps))  // Don't randomize 1st and last steps so it always hits 0 and 5v?
+        {
+          cv_out += cv_rand;
+          cv_out = constrain(cv_out, 0, HEMISPHERE_MAX_CV);  // (Not actually necessary if not randomizing start/end)        
+        }
+      
         Out(0, cv_out);
     }
 
@@ -245,36 +234,34 @@ protected:
     }
 
 private:
-    int steps;      // Number of steps, starting at 0v and ending at 5v (if > 0 steps)
-    int dir;        // 0 = up, 1 = up/down, 2 = down
-    int rand;       // 0 = no cv out randomization, 1 = random offsets are applied to each step
-    int curr_step;  // Current step
-    int reverse;    // current movement direction
-    int cv_out;     // CV currently being output (track for display)
+    int8_t steps;     // Number of steps, starting at 0v and ending at 5v (if > 0 steps)
+    int8_t dir;       // 0 = up, 1 = up/down, 2 = down
+    bool rand;        // 0 = no cv out randomization, 1 = random offsets are applied to each step
+    int8_t curr_step; // Current step
+    bool reverse;     // current movement direction
+    int cv_out;       // CV currently being output (track for display)
 
     int cv_rand;            // track last computed random offset for cv
-    int step_cv_lock;       // 1 if cv is controlling the current step (show on display)
-    int position_cv_lock;   // 1 if cv is controlling the current step (show on display)
-    int reset_gate;         // Track if currently held in reset (show an icon)
+    bool step_cv_lock;      // 1 if cv is controlling the current step (show on display)
+    bool position_cv_lock;  // 1 if cv is controlling the current step (show on display)
+    bool reset_gate;        // Track if currently held in reset (show an icon)
     
     int cursor;     // 0 = steps, 1 = direction, 2 = random
-
-    
 
     void DrawDisplay()
     {
       // Show a stairs icon followed by steps value
-      gfxBitmap(1, 15, 8, STAIRS_ICON); gfxPrint(16,15,steps+1);
+      gfxBitmap(6, 15, 8, STAIRS_ICON); gfxPrint(16,15,steps+1);
       if(step_cv_lock)
       {
         gfxBitmap(16, 25, 8, CV_ICON);
       }
 
       // Direction selector (as an icon)
-      gfxBitmap(38, 15, 8, (dir==0 ? UP_BTN_ICON : ( dir==1 ? UP_DOWN_ICON : DOWN_BTN_ICON )));
+      gfxBitmap(34, 15, 8, (dir==0 ? UP_BTN_ICON : ( dir==1 ? UP_DOWN_ICON : DOWN_BTN_ICON )));
 
       // random wiggle on/off
-      gfxBitmap(1, 35, 8, RANDOM_ICON);
+      gfxBitmap(6, 35, 8, RANDOM_ICON);
       if(!rand)
       {
         gfxPrint(16,35, "off");
@@ -302,7 +289,7 @@ private:
       //gfxInvert(9, 55, ProportionCV(cv_out, 54), 9);
 
       // Up/down indicator:
-      int h = 1+ProportionCV(cv_out, 46);  // Always show 1 
+      int h = 1+ProportionCV(cv_out, 48);  // Always show 1   // was: 46
       //gfxInvert(52, 63-h, 9, h);
       gfxInvert(48, 63-h, 9, h);
 
@@ -313,11 +300,11 @@ private:
       }
       else if(cursor == 1)
       {
-        gfxCursor(38, 23, 9);  // flashing underline on up/down icon
+        gfxCursor(34, 23, 9);  // flashing underline on up/down icon
       }
       else
       {
-        gfxCursor(16, 23 + (cursor * 10), 20);  // flashing underline on the random setting
+        gfxCursor(16, 43, 20);  // flashing underline on the random setting
       }
     }
 };
