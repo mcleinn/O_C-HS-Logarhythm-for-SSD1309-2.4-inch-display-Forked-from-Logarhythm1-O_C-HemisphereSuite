@@ -45,6 +45,7 @@ public:
         reg = random(0, 65535);
         p = 0;
         length = 16;
+        quant_range = 24;  //APD: Quantizer range
         cursor = 0;
         quantizer.Init();
         scale = OC::Scales::SCALE_SEMI;
@@ -77,9 +78,18 @@ public:
             // Shift left, then potentially add the bit from the other side
             reg = (reg << 1) + last;
         }
-        
+ 
         // Send 5-bit quantized CV
-        int note = reg & 0x1f;
+        int32_t note = reg & 0x1f;
+
+        // APD: Scale this to the range of notes allowed by quant_range: 32 should be all
+        // This defies the faithful Turing Machine sim aspect of this code but gives a useful addition that the Disting adds to the concept
+        // scaled = note * quant_range / 0x1f
+        note *= quant_range;
+        simfloat x = int2simfloat(note) / (int32_t)0x1f;
+        note = simfloat2int(x);
+        //tmp = note;
+        
         Out(0, quantizer.Lookup(note + 64));
 
         // Send 8-bit proportioned CV
@@ -94,7 +104,7 @@ public:
     }
 
     void OnButtonPress() {
-        if (++cursor > 2) cursor = 0;
+        if (++cursor > 3) cursor = 0;
     }
 
     void OnEncoderMove(int direction) {
@@ -105,6 +115,9 @@ public:
             if (scale >= TM_MAX_SCALE) scale = 0;
             if (scale < 0) scale = TM_MAX_SCALE - 1;
             quantizer.Configure(OC::Scales::GetScale(scale), 0xffff);
+        }
+        if(cursor == 3){
+           quant_range = constrain(quant_range += direction, 1, 32);
         }
     }
         
@@ -131,7 +144,7 @@ protected:
         help[HEMISPHERE_HELP_DIGITALS] = "1=Clock 2=p Gate";
         help[HEMISPHERE_HELP_CVS]      = "1=Length 2=p Mod";
         help[HEMISPHERE_HELP_OUTS]     = "A=Quant5-bit B=CV8";
-        help[HEMISPHERE_HELP_ENCODER]  = "Length/Prob/Scale";
+        help[HEMISPHERE_HELP_ENCODER]  = "Len/Prob/Scl/Range";
         //                               "------------------" <-- Size Guide
     }
     
@@ -144,6 +157,8 @@ private:
     uint16_t reg; // 16-bit sequence register
     int p; // Probability of bit 15 changing on each cycle
     int8_t scale; // Scale used for quantized output
+    //int tmp = 0;
+    int quant_range;  // APD
 
     void DrawSelector() {
         gfxBitmap(1, 14, 8, LOOP_ICON);
@@ -159,8 +174,13 @@ private:
         }
         gfxBitmap(1, 24, 8, SCALE_ICON);
         gfxPrint(12, 25, OC::scale_names_short[scale]);
+        gfxBitmap(41, 24, 8, NOTE4_ICON);
+        gfxPrint(49, 25, quant_range); // APD
+
+        //gfxPrint(1, 35, tmp);
         if (cursor == 0) gfxCursor(13, 23, 12); // Length Cursor
         if (cursor == 2) gfxCursor(13, 33, 30); // Scale Cursor
+        if (cursor == 3) gfxCursor(49, 33, 14); // Quant Range Cursor // APD
     }
 
     void DrawIndicator() {
