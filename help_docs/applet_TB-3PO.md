@@ -10,8 +10,10 @@ Controls
 - Encoder: Sets the seed as unlocked or locked, edits unlocked seeds, sets note/pitch density, quantization scale, root note, and number of steps in the pattern.
 
 ## Seed
+The seed parameter controls the random pattern generation. This is done deterministically, which means for the same seed you'll get the same patterns, based on the other controls.
+
 ### Locking and Unlocking
-The seed parameter controls the random pattern generation, and by default it will be unlocked (die icon) and will change on every reset input pulse. Turning the encoder to the right will lock the seed (lock icon) and prevent it from changing when reset pulses restart the pattern.
+By default the seed is unlocked (die icon) and will randomly change on every reset input pulse. Turning the encoder to the right will lock the seed (lock icon) and prevent it from changing when reset pulses restart the pattern.
 
 ### Manual reset
 When the seed die icon is selected, turning the encoder to the left once will reset the pattern after randomly choosing an entirely new seed. When the seed has the lock icon (turned right,) turning right once more will reset the pattern but leave the seed unchanged.
