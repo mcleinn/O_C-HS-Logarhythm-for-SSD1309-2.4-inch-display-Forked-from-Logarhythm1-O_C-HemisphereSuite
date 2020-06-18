@@ -1,0 +1,55 @@
+#TB-3PO
+
+TB-3PO is a TB-303 style, pitch CV and gate pattern generator robot, capable of fixed-time, exponential slides on the pitch CV for that secret TB sauce. It will do mono-pitched style 303 lines on one end, or full-range, Turing Machine style stuff on the other, all designed and tuned for musicality and calls/responses in live wiggling.
+
+Controls
+
+- Digital Ins: 1:Clock,  2:Reset / Regenerate
+- CV Ins:   1:Density,  2:Transpose
+- CV Outs:  A:V/Oct CV + glide, B:Gate (3v normal, 5v Accent)
+- Encoder: Sets the seed as unlocked or locked, edits unlocked seeds, sets note/pitch density, quantization scale, root note, and number of steps in the pattern.
+
+##Seed
+###Locking and Unlocking
+The seed parameter controls the random pattern generation, and by default it will be unlocked (die icon) and will change on every reset input pulse. Turning the encoder to the right will lock the seed (lock icon) and prevent it from changing when reset pulses restart the pattern.
+
+### Manual reset
+When the seed die icon is selected, turning the encoder to the left once will 
+
+###Editing the seed
+When the seed is locked, pressing the encoder advances to each of the four seed hex digits in turn. In this way you can experiment or return to past favorite seeds.
+
+##Density
+A bi-directional 'density' control specifies how many of the pattern's steps are likely to be gated, as well as the number of pitches that will be selected from. It ranges from -7 to +7:
+
+###Value / Gate Count /  Pitches
+
+- -7 / High / Root Only
+- -6 / High / Root and +1 note in scale
+- -5 / Med / Some notes available
+- ...
+- -1 / Low / Most notes in scale available
+-  0 / Low / All Notes in scale Available
+-  3 / Med / All Notes in scale Available
+- +7 / High / All Notes in scale Available
+
+Density is re-applied on every reset, but if the seed is locked, specific values of density will give the same subset of patterns. In this way you can break down from busy to sparse and back.
+
+##Scale
+Sets the quantization scale to use for the pattern, taking effect on the output right away. On Reset, the pattern's notes will draw only from the current scale.
+
+##Root Note
+Sets the root note from C to B, transposing the entire pattern.
+
+##Pattern Length
+Sets the length of the pattern from 1-16 steps. This doesn't alter the pattern apart from setting the loop point.
+
+##Visualization
+- The heart icon will beat whenever the pattern is reset
+- The seed die icon will hop whenever a new seed is randomly picked
+- A single octave keyboard shows the current playing step's pitch, quantized to semitones
+- Icons to the keyboard's right:
+ - "!" Indicates that the current step has an Accent and the gate cv will be 5v instead of 3v
+ - A note-with-arrow icon indicates a step that has Slide active
+ - A wiggly waveform icon shows that an active exponential pitch bend is occurring to reach the current step's pitch
+
