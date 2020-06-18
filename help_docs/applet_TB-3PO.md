@@ -1,5 +1,3 @@
-# TB-3PO
-
 TB-3PO is a TB-303 style, pitch CV and gate pattern generator robot, capable of fixed-time, exponential slides on the pitch CV for that secret TB sauce. It will do mono-pitched style 303 lines on one end, or full-range, Turing Machine style stuff on the other, all designed and tuned for musicality and calls/responses in live wiggling.
 
 Controls
@@ -45,6 +43,9 @@ Sets the root note from C to B, transposing the entire pattern.
 
 ## Pattern Length
 Sets the length of the pattern from 1-16 steps. This doesn't alter the pattern apart from setting the loop point.
+
+## Step Settings
+Like on the TB-303, each step can have Gate, Accent, Glide, +octave or -octave set on it. TB-3PO chooses these values randomly based on the seed and some 303-like rules. Gates emulate the TB-303 by going high for 50% of the detected clock rate, unless they have slide set. In this case they stay high through the next step, when an exponential, fixed-time glide to the next step's pitch is engaged. Accent steps output the gate at 5v instead of 3v, which may be useful with a secondary VCA to punch them a bit.
 
 ## Visualization
 - The heart icon will beat whenever the pattern is reset
