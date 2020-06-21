@@ -26,17 +26,17 @@ A bi-directional 'density' control specifies how many of the pattern's steps are
 
 - -7 / High / Root Only
 - -6 / High / Root and +1 note in scale
-- -5 / Med / Some notes available
+- -5 / Med / Some notes in scale available
 - ...
 - -1 / Low / Most notes in scale available
 -  0 / Low / All Notes in scale Available
 -  3 / Med / All Notes in scale Available
 - +7 / High / All Notes in scale Available
 
-Density is re-applied on every reset, but if the seed is locked, specific values of density will give the same subset of patterns. In this way you can break down from busy to sparse and back.
+Density changes are applied on every clock, but if the seed is locked, specific values of density will give the same subset of patterns. In this way you can break down from busy to sparse and back.
 
 ## Scale
-Sets the quantization scale to use for the pattern, taking effect on the output right away. On Reset, the pattern's notes will draw only from the current scale.
+Sets the quantization scale to use for the pattern, and makes only those notes available to the pattern generator. It affects the current output CV immediately and applies to the pattern on the next clock.
 
 ## Root Note
 Sets the root note from C to B, transposing the entire pattern.
@@ -52,7 +52,8 @@ Like on the TB-303, each step can have Gate, Accent, Glide, +octave or -octave s
 - The seed die icon will hop whenever a new seed is randomly picked
 - A single octave keyboard shows the current playing step's pitch, quantized to semitones
 - Icons to the keyboard's right:
- - "!" Indicates that the current step has an Accent and the gate cv will be 5v instead of 3v
- - A note-with-arrow icon indicates a step that has Slide active
- - A wiggly waveform icon shows that an active exponential pitch bend is occurring to reach the current step's pitch
+  - "!" Indicates that the current step has an Accent and the gate cv will be 5v instead of 3v
+  - A note-with-arrow icon indicates a step that has Slide active
+  - A wiggly waveform icon shows that an active exponential pitch bend is occurring to reach the current step's pitch
+  - UP and DOWN arrows indicate if the current step is transposed up or down by one octave, respectively
 
