@@ -45,9 +45,6 @@ class TB_3PO : public HemisphereApplet
 
     void Start() 
     {
-      lock_seed = 0;
-    	seed = random(0, 65535); // 16 bits
-    	regenerate(seed);
 
       manual_reset_flag = 0;
       rand_apply_anim = 0;
@@ -78,6 +75,11 @@ class TB_3PO : public HemisphereApplet
       slide_end_cv = 0;
       
       transpose_note_in = 0;    
+
+      lock_seed = 0;
+      seed = random(0, 65535); // 16 bits
+      regenerate_all();
+
     }
 
     void Controller() 
@@ -98,7 +100,7 @@ class TB_3PO : public HemisphereApplet
 
         // Apply the seed to regenerate the pattern`
         // This is deterministic so if the seed is held, the pattern will not change
-        regenerate(seed);
+        regenerate_all();
 
         // Reset step
         step = 0;
@@ -124,7 +126,11 @@ class TB_3PO : public HemisphereApplet
       // Wait for the ADC since transpose CV is needed
       if (Clock(0)) 
       {
-        cycle_time = ClockCycleTicks(0);  // Track latest interval of clock 0 for gate timings      
+        cycle_time = ClockCycleTicks(0);  // Track latest interval of clock 0 for gate timings
+
+        // Sneak this in here before clock is 'applied' and the next step is reached, to re-apply density to the pattern if required
+        regenerate_if_density_or_scale_changed();  // Flag to do the actual update at end of Controller()
+        
         StartADCLag();
       }
 
@@ -265,7 +271,7 @@ class TB_3PO : public HemisphereApplet
 
         // See if the turn would move beyond the random die to the left or the lock to the right
         // If so, take this as a manual input just like receiving a reset pulse (handled in Controller())
-        // regenerate() will honor the random or locked icon shown (seed will be randomized or not)
+        // regenerate_all() will honor the random or locked icon shown (seed will be randomized or not)
         manual_reset_flag = (lock_seed > 1 || lock_seed < 0) ? 1 : 0;
         
         // constrain to legal values before regeneration
@@ -290,8 +296,10 @@ class TB_3PO : public HemisphereApplet
       }
       else if (cursor == 5)
       {
-        // Set for the next time a pattern is generated
         density = constrain(density + direction, 0, 14);  // Treated as a bipolar -7 to 7 in practice
+        
+        // Disabled: Let this occur when detected on the next step
+        //regenerate_density_if_changed();
       } 
       else if(cursor == 6)
       {
@@ -338,7 +346,7 @@ class TB_3PO : public HemisphereApplet
       density = constrain(density, 0, 14); // Internally just positive
       
       // Restore all seed-derived settings!
-      regenerate(seed);
+      regenerate_all();
 
       // Reset step position
       step = 0;
@@ -370,6 +378,7 @@ class TB_3PO : public HemisphereApplet
     int lock_seed;  // If 1, the seed won't randomize (and manual editing is enabled)
     
     uint16_t seed;  // The random seed that deterministically builds the sequence
+    //uint16_t current_pattern_seed;  // Track the seed value was used to render the current pattern
     
     int scale;      // Active quantization & generation scale
     uint8_t root;   // Root note
@@ -379,7 +388,7 @@ class TB_3PO : public HemisphereApplet
                       // For values mapped < 0 (e.g. left range,) the more negative the value is, the less chance consecutive pitches will
                       // change from the prior pitch, giving repeating lines (note: octave jumps still apply)
 
-    // Bool
+    uint8_t current_pattern_density;  // Track what density value was used to generate the current pattern (to detect if regeneration is required)
     uint8_t density_cv_lock;  // Tracks if density is under cv control (can't change manually)
 
     uint8_t num_steps;        // How many steps of the generated pattern to play before looping
@@ -396,7 +405,8 @@ class TB_3PO : public HemisphereApplet
     uint16_t oct_downs = 0;   // Bitfield of octave downs
     uint8_t notes[ACID_MAX_STEPS];  // Note values
 
-    uint8_t scale_size;  // The size of the scale used to generate the pattern (for octave detection, etc)
+    uint8_t scale_size;  // The size of the currently set quantizer scale (for octave detection, etc)
+    uint8_t current_pattern_scale_size; // Track what size scale was used to render the current pattern (for change detection)
     
     // For gate timing as ~32nd notes at tempo, detect clock rate like a clock multiplier
     //int timing_count;
@@ -452,11 +462,23 @@ class TB_3PO : public HemisphereApplet
 
     
   	// Trigger generating the sequence deterministically using the seed (over the next couple of Controller() calls)
-  	void regenerate(int seed)
+  	void regenerate_all()
   	{
       regenerate_phase = 1;  // Set to regenerate on loop
       rand_apply_anim = 40;  // Show that regenerate started (anim for this many display updates)
   	}
+
+    void regenerate_if_density_or_scale_changed()
+    {
+      // Skip if density has not changed, or if currently regenerating
+      if(regenerate_phase == 0)
+      {
+        if(density != current_pattern_density || scale_size != current_pattern_scale_size)
+        {
+          regenerate_phase = 1;  // regenerate all since pitches take density into account
+        }
+      }
+    }
 
     // Amortize random generation over multiple frames
     // Without having profiled this properly, I'm less concerned about overrunning isr times alloted to this app if it's amortized
@@ -566,6 +588,10 @@ class TB_3PO : public HemisphereApplet
       {
         scale_size = 12;
       }
+
+      // Track the seed used to render the current pattern, for change detection
+      //current_pattern_seed = seed;
+      current_pattern_scale_size = scale_size;
   	}
   	
   	// Change pattern density without affecting pitches
@@ -598,6 +624,9 @@ class TB_3PO : public HemisphereApplet
         accents |= latest_accent;
         accents <<= 1;
   		}
+
+      // Track the value of density used to render the pattern (to detect changes)
+      current_pattern_density = density;
      
   	}
 
