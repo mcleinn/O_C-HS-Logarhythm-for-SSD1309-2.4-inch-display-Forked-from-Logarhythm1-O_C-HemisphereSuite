@@ -31,7 +31,9 @@
 #include "braids_quantizer_scales.h"
 #include "OC_scales.h"
 
-#define ACID_MAX_STEPS 16
+//#define ACID_MAX_STEPS 16
+#define ACID_HALF_STEPS 16
+#define ACID_MAX_STEPS 32
 
 class TB_3PO : public HemisphereApplet 
 {
@@ -317,7 +319,7 @@ class TB_3PO : public HemisphereApplet
       }
       else
       {
-        num_steps = constrain(num_steps + direction, 1, 16);
+        num_steps = constrain(num_steps + direction, 1, 32);
       }
     }
 
@@ -398,11 +400,11 @@ class TB_3PO : public HemisphereApplet
     int transpose_note_in;      // Current transposition from cv in (initially a cv value)
 
     // Generated sequence data
-    uint16_t gates = 0; 		// Bitfield of gates;  ((gates >> step) & 1) means gate
-    uint16_t slides = 0; 	// Bitfield of slide steps; ((slides >> step) & 1) means slide
-    uint16_t accents = 0;   // Bitfield of accent steps; ((accents >> step) & 1) means accent
-    uint16_t oct_ups = 0;   // Bitfield of octave ups
-    uint16_t oct_downs = 0;   // Bitfield of octave downs
+    uint32_t gates = 0; 		// Bitfield of gates;  ((gates >> step) & 1) means gate
+    uint32_t slides = 0; 	// Bitfield of slide steps; ((slides >> step) & 1) means slide
+    uint32_t accents = 0;   // Bitfield of accent steps; ((accents >> step) & 1) means accent
+    uint32_t oct_ups = 0;   // Bitfield of octave ups
+    uint32_t oct_downs = 0;   // Bitfield of octave downs
     uint8_t notes[ACID_MAX_STEPS];  // Note values
 
     uint8_t scale_size;  // The size of the currently set quantizer scale (for octave detection, etc)
@@ -480,6 +482,8 @@ class TB_3PO : public HemisphereApplet
       }
     }
 
+
+
     // Amortize random generation over multiple frames
     // Without having profiled this properly, I'm less concerned about overrunning isr times alloted to this app if it's amortized
     void update_regeneration()
@@ -493,8 +497,15 @@ class TB_3PO : public HemisphereApplet
       
       switch(regenerate_phase)
       {
+        // 1st set of 16 steps
         case 1: regenerate_pitches(); ++regenerate_phase; break;
-        case 2: apply_density(); regenerate_phase = 0;break;
+        //case 2: apply_density(); regenerate_phase = 0; break;
+        case 2: apply_density(); ++regenerate_phase;break;
+        // 2nd set of 16 steps
+        case 3: regenerate_pitches(); ++regenerate_phase; break;      
+        // After doing the 2nd set of bitvectors, swap the low and high 16 bits to align the first 16 steps to the steps they would have had
+        // when this app only rendered 16 steps
+        case 4: apply_density(); restore_legacy_byte_orders(); regenerate_phase = 0; break;
         default: break;
       }
     }
@@ -503,11 +514,10 @@ class TB_3PO : public HemisphereApplet
     // Generate the notes sequence based on the seed and modified by density
     void regenerate_pitches()
     {
-      // Get the available note count to choose from per oct
-      // This doesn't really matter since notes are index-based, and the quant scale can be changed live
-      // But it will color the random note selection to the scale maybe?
-      //const braids::Scale & quant_scale = OC::Scales::GetScale(scale);
-      //scale_size = quant_scale.num_notes;  // Track this scale size for display
+
+      // 32 steps are computed across two passes of this function
+      // Determine if the first 16 or second 16 steps are being handled here
+      bool bFirstHalf = regenerate_phase < 3;
 
       // How much pitch variety to use from the available pitches (one of the factors of the 'density' control when < centerpoint)
       int pitch_change_dens = get_pitch_change_density();   
@@ -537,9 +547,22 @@ class TB_3PO : public HemisphereApplet
       }
 
       // Set notes and  octave up / octave down bitvectors
-      oct_ups = 0;
-      oct_downs = 0;
-      for (int s = 0; s < ACID_MAX_STEPS; s++) 
+      if(bFirstHalf)
+      {
+        // Clear only on the first pass (otherwise, resume with current value)
+        oct_ups = 0;
+        oct_downs = 0;
+      }
+      else
+      {
+        // Nudge the existing bitvectors so they're ready to write the next bit
+        oct_ups <<= 1;
+        oct_downs <<= 1;
+      }
+
+      // Do either the first or second set of steps on this pass
+      int max_step = (bFirstHalf ? ACID_HALF_STEPS : ACID_MAX_STEPS);
+      for (int s = (bFirstHalf ? 0 : ACID_HALF_STEPS); s < max_step; s++) 
       {
         // Increased chance to repeat the prior note, the smaller the pitch change aspect of 'density' is
         // 0-8, least to most likely to change pitch
@@ -550,23 +573,13 @@ class TB_3PO : public HemisphereApplet
         }
         else
         {
-          /*
-          if(available_pitches <= 1)
-          {
-            notes[s] = 0;
-          }
-          else*/
-          {
-            // Grab a random note index from the scale's available pitches
-            // Since this starts at 0, the root note will always be included, and adjacent scale notes are included as the range grows
-            notes[s] = random(0,available_pitches+1);  // Looking at the source, random(min,max) appears to return the range: min to max-1
-          }
-          
+          // Grab a random note index from the scale's available pitches
+          // Since this starts at 0, the root note will always be included, and adjacent scale notes are included as the range grows
+          notes[s] = random(0,available_pitches+1);  // Looking at the source, random(min,max) appears to return the range: min to max-1
+
           // Random oct up or down (Treating octave based on the scale's number of notes)
           if(rand_bit(40))
           {
-            // Removed: use bitvectors instead so scale can change live and still do octaves correctly
-            //notes[s] += (scale_size > 0 ? scale_size : 12) * (rand_bit(50) ? -1 : 1);    // Use 12-note octave if 'none'
             if(rand_bit(50))
             {
               oct_ups |= 0x1;
@@ -579,7 +592,8 @@ class TB_3PO : public HemisphereApplet
           }
           oct_ups <<= 1;
           oct_downs <<= 1;
-          
+
+          // Note: this always shifts the very first step to be 0 (originally a bug, but probably desirable)
         }      
       }
 
@@ -600,36 +614,53 @@ class TB_3PO : public HemisphereApplet
   		int latest_slide = 0; // Track previous bit for some algos
       int latest_accent = 0; // Track previous bit for some algos
   		
-  		gates = 0;
       // Get gate probability from the 'density' value
       int on_off_dens = get_on_off_density();
       int densProb = 10 + on_off_dens * 14;  // Should start >0 and reach 100+
 
-      slides = 0;
-      accents = 0;
+      // Clear if this is the first 16 steps to generate (otherwise append to these bit vectors for the 2nd set of 16)
+      bool bFirstHalf = regenerate_phase < 3;
+      if(bFirstHalf)
+      {
+        gates = 0;
+        slides = 0;
+        accents = 0;
+      }
+      else
+      {
+        // Nudge the existing bitvectors so they're ready to write the next bit
+        // (Note: coupled with correcting the order of bitshift on each below, this emulates the bug that advanced the bitvector one extra in the original version)
+        // (For the sake of maintaining patterns)
+        gates <<= 1;
+        slides <<= 1;
+        accents <<= 1;
+      }
 
-      // Apply to each step
-  		for(int i=0; i<ACID_MAX_STEPS; ++i)
+ 		 //for(int i=0; i<ACID_MAX_STEPS; ++i)  
+     // Apply to each step
+     // Do half of the steps on each pass of this func
+     for(int i=0; i< ACID_HALF_STEPS; ++i)
   		{
+        gates <<= 1;        
   			gates |= rand_bit(densProb);
-  			gates <<= 1;
 
         // Less probability of consecutive slides
+        slides <<= 1;
         latest_slide = rand_bit((latest_slide ? 10 : 18));
         slides |= latest_slide;
-        slides <<= 1;
         
         // Less probability of consecutive accents
+        accents <<= 1;
         latest_accent = rand_bit((latest_accent ? 7 : 16));
         accents |= latest_accent;
-        accents <<= 1;
+        
   		}
 
       // Track the value of density used to render the pattern (to detect changes)
       current_pattern_density = density;
-     
-  	}
 
+  	}
+ 
     // Get on/off likelihood from the current value of 'density'
     int get_on_off_density()
     {
@@ -663,13 +694,28 @@ class TB_3PO : public HemisphereApplet
 
     bool step_is_oct_up(int step_num){
        return (oct_ups & (0x01 << step_num));
+       //return ((oct_ups>>16) & (0x01 << step_num));
     }
     
     bool step_is_oct_down(int step_num){
        return (oct_downs & (0x01 << step_num));
+       //return ((oct_downs>>16) & (0x01 << step_num));
+    }
+
+
+    // This is wholly unnecessary _except_ for the purpose of keeping legacy pattern seeds'
+    // generation of 16-step patterns the same as the new 32-step generation 
+    //(by swapping the first 16 bits generated in each bitvector to align with the first 16 steps again)
+    #define SWAP_2MSB_2LSB(x) ( x = (x << 16) | (x >> 16))
+    void restore_legacy_byte_orders()
+    {
+      SWAP_2MSB_2LSB(gates);
+      SWAP_2MSB_2LSB(slides);
+      SWAP_2MSB_2LSB(accents);
+      SWAP_2MSB_2LSB(oct_ups);
+      SWAP_2MSB_2LSB(oct_downs);
     }
     
-  
   	int get_next_step(int step_num)
   	{
       // loop at the current loop point
@@ -685,6 +731,7 @@ class TB_3PO : public HemisphereApplet
   	{
   		return (random(1, 100) <= prob) ? 1 : 0;
   	}
+
 
     void set_quantizer_scale(int new_scale)
     {
@@ -806,7 +853,6 @@ class TB_3PO : public HemisphereApplet
         // Two white keys in a row E and F
         if( i == 5 ) x+=3;
   
-        //if(iPlayingIndex == i && step_is_gated(step))  // Only render a pitch if gated
         if(keyboard_pitch == i && step_is_gated(step))  // Only render a pitch if gated
         {
           gfxRect(x-1, y-1, 5, 4);  // Larger box
