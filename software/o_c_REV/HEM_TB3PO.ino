@@ -482,8 +482,6 @@ class TB_3PO : public HemisphereApplet
       }
     }
 
-
-
     // Amortize random generation over multiple frames
     // Without having profiled this properly, I'm less concerned about overrunning isr times alloted to this app if it's amortized
     void update_regeneration()
@@ -505,7 +503,8 @@ class TB_3PO : public HemisphereApplet
         case 3: regenerate_pitches(); ++regenerate_phase; break;      
         // After doing the 2nd set of bitvectors, swap the low and high 16 bits to align the first 16 steps to the steps they would have had
         // when this app only rendered 16 steps
-        case 4: apply_density(); restore_legacy_byte_orders(); regenerate_phase = 0; break;
+        //case 4: apply_density(); restore_legacy_byte_orders(); regenerate_phase = 0; break;
+        case 4: apply_density(); regenerate_phase = 0; break;
         default: break;
       }
     }
@@ -553,12 +552,13 @@ class TB_3PO : public HemisphereApplet
         oct_ups = 0;
         oct_downs = 0;
       }
+      /*
       else
       {
         // Nudge the existing bitvectors so they're ready to write the next bit
         oct_ups <<= 1;
         oct_downs <<= 1;
-      }
+      }*/
 
       // Do either the first or second set of steps on this pass
       int max_step = (bFirstHalf ? ACID_HALF_STEPS : ACID_MAX_STEPS);
@@ -578,6 +578,9 @@ class TB_3PO : public HemisphereApplet
           notes[s] = random(0,available_pitches+1);  // Looking at the source, random(min,max) appears to return the range: min to max-1
 
           // Random oct up or down (Treating octave based on the scale's number of notes)
+          oct_ups <<= 1;
+          oct_downs <<= 1;
+
           if(rand_bit(40))
           {
             if(rand_bit(50))
@@ -588,12 +591,7 @@ class TB_3PO : public HemisphereApplet
             {
               oct_downs |= 0x1;
             }
-            
           }
-          oct_ups <<= 1;
-          oct_downs <<= 1;
-
-          // Note: this always shifts the very first step to be 0 (originally a bug, but probably desirable)
         }      
       }
 
@@ -607,7 +605,8 @@ class TB_3PO : public HemisphereApplet
       //current_pattern_seed = seed;
       current_pattern_scale_size = scale_size;
   	}
-  	
+
+    
   	// Change pattern density without affecting pitches
   	void apply_density()
   	{
@@ -626,7 +625,7 @@ class TB_3PO : public HemisphereApplet
         slides = 0;
         accents = 0;
       }
-      else
+      /*else
       {
         // Nudge the existing bitvectors so they're ready to write the next bit
         // (Note: coupled with correcting the order of bitshift on each below, this emulates the bug that advanced the bitvector one extra in the original version)
@@ -634,7 +633,7 @@ class TB_3PO : public HemisphereApplet
         gates <<= 1;
         slides <<= 1;
         accents <<= 1;
-      }
+      }*/
 
  		 //for(int i=0; i<ACID_MAX_STEPS; ++i)  
      // Apply to each step
@@ -694,15 +693,13 @@ class TB_3PO : public HemisphereApplet
 
     bool step_is_oct_up(int step_num){
        return (oct_ups & (0x01 << step_num));
-       //return ((oct_ups>>16) & (0x01 << step_num));
     }
     
     bool step_is_oct_down(int step_num){
        return (oct_downs & (0x01 << step_num));
-       //return ((oct_downs>>16) & (0x01 << step_num));
     }
 
-
+    /*
     // This is wholly unnecessary _except_ for the purpose of keeping legacy pattern seeds'
     // generation of 16-step patterns the same as the new 32-step generation 
     //(by swapping the first 16 bits generated in each bitvector to align with the first 16 steps again)
@@ -715,6 +712,7 @@ class TB_3PO : public HemisphereApplet
       SWAP_2MSB_2LSB(oct_ups);
       SWAP_2MSB_2LSB(oct_downs);
     }
+    */
     
   	int get_next_step(int step_num)
   	{

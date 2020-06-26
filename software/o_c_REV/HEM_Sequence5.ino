@@ -21,7 +21,7 @@
 #include "HSMIDI.h"
 
 
-// APD Modified
+// APD Modified: Clocks are locked out when reset is still high
 #define SEQ5_STEPS 5
 // NOTE: Not claiming >5 when saving, or restoring when loading!
 
@@ -29,7 +29,7 @@ class Sequence5 : public HemisphereApplet {
 public:
 
     const char* applet_name() { // Maximum 10 characters
-        return "SequenceX";
+        return "Sequence5";
     }
 
     void Start() {
