@@ -117,6 +117,7 @@ class TB_3PO : public HemisphereApplet
       }
 
       // Control density from cv1 (Wiggling can build up & break down patterns nicely, especially if seed is locked)
+      /*
       density_cv_lock = 0;  // Track if density is under cv control
       if (DetentedIn(1)) 
       {
@@ -124,7 +125,38 @@ class TB_3PO : public HemisphereApplet
           density = constrain(num, 0, 14);
           density_cv_lock = 1;
       }
+      */
+      // Test: the encoder sets a center point and CV becomes a bipolar offset
+      {
 
+        /*  Working: +-3v
+        int signal = constrain(In(1), -HEMISPHERE_3V_CV, HEMISPHERE_3V_CV);
+
+        // N.B. Use only positive values for Proportion() here so it is symmetrical (Otherwise negative values will e.g. immediately go to -1 at any value <0v)
+        density_cv = Proportion(abs(signal), HEMISPHERE_3V_CV, 7);
+        if(signal < 0)
+        {
+          density_cv *= -1;  // Restore as negative if necessary
+        }
+        */
+
+        // -3 to +6v,  giving -7 to +14 added to encoder density value
+        int signal = constrain(In(1), -HEMISPHERE_3V_CV, HEMISPHERE_3V_CV*2);
+        if(signal < 0)
+        {
+          // N.B. Use only positive values for Proportion() here so it is symmetrical (Otherwise negative values will e.g. immediately go to -1 at any value <0v)
+          density_cv = Proportion(abs(signal), HEMISPHERE_3V_CV, 7) * -1;  // restore negative value
+        }
+        else
+        {
+          density_cv = Proportion(signal, HEMISPHERE_3V_CV*2, 14);  // Span 7 values per 3v
+        }
+
+        
+        density = static_cast<uint8_t>(constrain(density_encoder + density_cv, 0, 14));
+      }
+
+      
       // Wait for the ADC since transpose CV is needed
       if (Clock(0)) 
       {
@@ -298,7 +330,9 @@ class TB_3PO : public HemisphereApplet
       }
       else if (cursor == 5)
       {
-        density = constrain(density + direction, 0, 14);  // Treated as a bipolar -7 to 7 in practice
+        density_encoder = constrain(density_encoder + direction, 0, 14);  // Treated as a bipolar -7 to 7 in practice
+
+        //density = constrain(density + direction, 0, 14);  // Treated as a bipolar -7 to 7 in practice
         
         // Disabled: Let this occur when detected on the next step
         //regenerate_density_if_changed();
@@ -328,7 +362,7 @@ class TB_3PO : public HemisphereApplet
 		
         Pack(data, PackLocation {0,8}, scale);
         Pack(data, PackLocation {8,4}, root);
-        Pack(data, PackLocation {12,4}, density);
+        Pack(data, PackLocation {12,4}, density_encoder);
         Pack(data, PackLocation {16,16}, seed);
         return data;
     }
@@ -337,7 +371,7 @@ class TB_3PO : public HemisphereApplet
 		
       scale = Unpack(data, PackLocation {0,8});
       root = Unpack(data, PackLocation {8,4});
-      density = Unpack(data, PackLocation {12,4});
+      density_encoder = Unpack(data, PackLocation {12,4});
       seed = Unpack(data, PackLocation {16,16});
 
       //const braids::Scale & quant_scale = OC::Scales::GetScale(scale);
@@ -345,7 +379,8 @@ class TB_3PO : public HemisphereApplet
       
       //scale = constrain(0, OC::Scales::NUM_SCALES-1);
       root = constrain(root, 0, 11);
-      density = constrain(density, 0, 14); // Internally just positive
+      density_encoder = constrain(density_encoder, 0, 14); // Internally just positive
+      density = density_encoder;
       
       // Restore all seed-derived settings!
       regenerate_all();
@@ -360,7 +395,7 @@ class TB_3PO : public HemisphereApplet
         help[HEMISPHERE_HELP_DIGITALS] = "1=Clock 2=Regen";
         help[HEMISPHERE_HELP_CVS]      = "1=Transp 2=Density";
         help[HEMISPHERE_HELP_OUTS]     = "A=CV+glide B=Gate";
-        help[HEMISPHERE_HELP_ENCODER]  = "seed/qnt/dens/len";
+        help[HEMISPHERE_HELP_ENCODER]  = "seed/dens/qnt/len";
         //                               "------------------" <-- Size Guide
     }
     
@@ -392,6 +427,10 @@ class TB_3PO : public HemisphereApplet
 
     uint8_t current_pattern_density;  // Track what density value was used to generate the current pattern (to detect if regeneration is required)
     uint8_t density_cv_lock;  // Tracks if density is under cv control (can't change manually)
+
+  // Center-offset test:
+    int density_encoder;
+    int density_cv;
 
     uint8_t num_steps;        // How many steps of the generated pattern to play before looping
     
@@ -799,6 +838,13 @@ class TB_3PO : public HemisphereApplet
         gfxPrint(8, 37, "-");  // Print minus sign this way to right-align the number
       }
       gfxPrint(14, 37, gate_dens);
+
+      /* CV offset test
+      int test = Proportion(abs(density_cv), HEMISPHERE_3V_CV, 7);
+      if(density_cv < 0) test *= -1;
+      gfxPos(0, 27);gfxPrint(test);
+      gfxPos(0, 37); gfxPrintVoltage(density_cv);
+      */
       
       // Indicate if cv is controlling the density (and locking out manual settings)
       if(density_cv_lock)
