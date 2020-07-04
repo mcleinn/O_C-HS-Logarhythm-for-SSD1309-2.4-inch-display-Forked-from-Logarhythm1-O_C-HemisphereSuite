@@ -839,7 +839,8 @@ class TB_3PO : public HemisphereApplet
         }
       }
   
-      // Density 
+      // Display density 
+        
       int gate_dens = get_on_off_density();
       int pitch_dens = get_pitch_change_density();
 
@@ -862,11 +863,9 @@ class TB_3PO : public HemisphereApplet
 
         if(density_cv != 0)  // When cv is applied, show that this is the centered value being displayed
         {
-          //gfxFrame(5, 36, 24, 10);
-          //gfxPrint(1, 37, "c"); // "center"
-          //gfxBitmap(22, 37, 8, UP_BTN_ICON);
-          gfxBitmap(22, 34, 8, DOWN_BTN_ICON);
-          gfxLine(22, 42, 29, 42);
+          // Draw a knob to the left to represent the centerpoint being set
+          gfxCircle(3, 40, 3);
+          gfxLine(3, 38, 3, 40);
         }
         
       }
@@ -875,7 +874,6 @@ class TB_3PO : public HemisphereApplet
         dens_display = gate_dens;
         dens_neg = density < 7;
         // Indicate if cv is affecting the density
-        //if(density_cv_lock)
         if(density_cv != 0)  // Density integer contribution from CV (not raw cv)
         {
           gfxBitmap(22, 37, 8, CV_ICON);
@@ -887,13 +885,14 @@ class TB_3PO : public HemisphereApplet
         gfxPrint(8, 37, "-");  // Print minus sign this way to right-align the number
       }
       gfxPrint(14, 37, dens_display);
-        
+
       /* CV offset test
       int test = Proportion(abs(density_cv), HEMISPHERE_3V_CV, 7);
       if(density_cv < 0) test *= -1;
       gfxPos(0, 27);gfxPrint(test);
       gfxPos(0, 37); gfxPrintVoltage(density_cv);
       */
+     
       
       // Scale and root note select
       xd = (scale < 4) ? 32 : 39;  // Slide/crowd to the left a bit if showing the "USER1"-"USER4" scales, which are uniquely five instead of four characters
