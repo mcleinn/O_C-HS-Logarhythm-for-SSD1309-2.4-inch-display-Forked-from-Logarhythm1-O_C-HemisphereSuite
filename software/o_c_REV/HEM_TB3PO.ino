@@ -63,7 +63,8 @@ class TB_3PO : public HemisphereApplet
       display_semi_quantizer.Configure(OC::Scales::GetScale(OC::Scales::SCALE_SEMI), 0xffff);
       
       density = 12;
-      density_cv_lock = 0;
+      //density_cv_lock = 0;
+      density_encoder_display = 0;
 
       num_steps = 16;
       
@@ -140,6 +141,8 @@ class TB_3PO : public HemisphereApplet
         }
         */
 
+
+        /*
         // -3 to +6v,  giving -7 to +14 added to encoder density value
         int signal = constrain(In(1), -HEMISPHERE_3V_CV, HEMISPHERE_3V_CV*2);
         if(signal < 0)
@@ -151,8 +154,21 @@ class TB_3PO : public HemisphereApplet
         {
           density_cv = Proportion(signal, HEMISPHERE_3V_CV*2, 14);  // Span 7 values per 3v
         }
-
+        */
         
+        // -2.5v to +5v (HEMISPHERE_MAX_CV),  giving -7 to +14 added to encoder density value
+        int signal = constrain(In(1), -HEMISPHERE_3V_CV, HEMISPHERE_MAX_CV);  // Allow negative to go about as far as it will reach
+        if(signal < 0)
+        {
+          // N.B. Use only positive values for Proportion() here so it is symmetrical (Otherwise negative values will e.g. immediately go to -1 at any value <0v)
+          density_cv = Proportion(abs(signal), HEMISPHERE_MAX_CV/2, 7) * -1;  // restore negative value
+        }
+        else
+        {
+          density_cv = Proportion(signal, HEMISPHERE_MAX_CV, 14);  // Span 7 values per 3v
+        }
+
+        //density_cv_lock = density_cv != 0;  // Flag density cv active
         density = static_cast<uint8_t>(constrain(density_encoder + density_cv, 0, 14));
       }
 
@@ -331,7 +347,8 @@ class TB_3PO : public HemisphereApplet
       else if (cursor == 5)
       {
         density_encoder = constrain(density_encoder + direction, 0, 14);  // Treated as a bipolar -7 to 7 in practice
-
+        density_encoder_display = 400; // How long to show the encoder version of density in the number display for
+        
         //density = constrain(density + direction, 0, 14);  // Treated as a bipolar -7 to 7 in practice
         
         // Disabled: Let this occur when detected on the next step
@@ -426,12 +443,12 @@ class TB_3PO : public HemisphereApplet
                       // change from the prior pitch, giving repeating lines (note: octave jumps still apply)
 
     uint8_t current_pattern_density;  // Track what density value was used to generate the current pattern (to detect if regeneration is required)
-    uint8_t density_cv_lock;  // Tracks if density is under cv control (can't change manually)
+    //uint8_t density_cv_lock;  // Tracks if density is under cv control (can't change manually)
 
-  // Center-offset test:
-    int density_encoder;
-    int density_cv;
-
+    // Density controls (Encoder sets center point, CV can apply +-)
+    int density_encoder;  // density value contributed by the encoder (center point)
+    int density_cv;       // density value (+-) contributed by CV
+    int density_encoder_display; // Countdown of frames to show the encoder's density value (centerpoint)
     uint8_t num_steps;        // How many steps of the generated pattern to play before looping
     
     // Playback
@@ -832,13 +849,45 @@ class TB_3PO : public HemisphereApplet
       gfxBitmap(12-xd, 27+yd, 8, NOTE4_ICON);
       gfxBitmap(12, 27-yd, 8, NOTE4_ICON);
       gfxBitmap(12+xd, 27, 8, NOTE4_ICON);
-      
-      if(density < 7)
+
+      // Display a number value for density
+      int dens_display = gate_dens;
+      bool dens_neg = false;
+      if(density_encoder_display > 0)
+      {
+        // The density encoder value was recently changed, so show it momentarily instead of the cv+encoder value normally shown
+        --density_encoder_display;
+        dens_display = abs(density_encoder-7);  //Map from 0 to 14 --> -7 to 7
+        dens_neg = density_encoder < 7;
+
+        if(density_cv != 0)  // When cv is applied, show that this is the centered value being displayed
+        {
+          //gfxFrame(5, 36, 24, 10);
+          //gfxPrint(1, 37, "c"); // "center"
+          //gfxBitmap(22, 37, 8, UP_BTN_ICON);
+          gfxBitmap(22, 34, 8, DOWN_BTN_ICON);
+          gfxLine(22, 42, 29, 42);
+        }
+        
+      }
+      else
+      {
+        dens_display = gate_dens;
+        dens_neg = density < 7;
+        // Indicate if cv is affecting the density
+        //if(density_cv_lock)
+        if(density_cv != 0)  // Density integer contribution from CV (not raw cv)
+        {
+          gfxBitmap(22, 37, 8, CV_ICON);
+        }
+      }
+
+      if(dens_neg)
       {
         gfxPrint(8, 37, "-");  // Print minus sign this way to right-align the number
       }
-      gfxPrint(14, 37, gate_dens);
-
+      gfxPrint(14, 37, dens_display);
+        
       /* CV offset test
       int test = Proportion(abs(density_cv), HEMISPHERE_3V_CV, 7);
       if(density_cv < 0) test *= -1;
@@ -846,14 +895,9 @@ class TB_3PO : public HemisphereApplet
       gfxPos(0, 37); gfxPrintVoltage(density_cv);
       */
       
-      // Indicate if cv is controlling the density (and locking out manual settings)
-      if(density_cv_lock)
-      {
-        gfxBitmap(22, 37, 8, CV_ICON);
-      }
-      
       // Scale and root note select
-      gfxPrint(39, 27, OC::scale_names_short[scale]);
+      xd = (scale < 4) ? 32 : 39;  // Slide/crowd to the left a bit if showing the "USER1"-"USER4" scales, which are uniquely five instead of four characters
+      gfxPrint(xd, 27, OC::scale_names_short[scale]);
       gfxPrint(45, 36, OC::Strings::note_names_unpadded[root]);
  
       //gfxPrint(" (");gfxPrint(density);gfxPrint(")");  // Debug print of actual density value
