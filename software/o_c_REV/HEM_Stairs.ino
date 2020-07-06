@@ -28,7 +28,7 @@
 
 
 #define HEM_STAIRS_MAX_STEPS 32
-
+//#define HEM_STAIRS_GRAPH_SIZE 16
 class Stairs : public HemisphereApplet {
 public:
 
@@ -54,6 +54,14 @@ public:
         reverse = false;
         cv_out = 0;
         cv_rand = 0;
+
+        /*
+        graph_pos = 0;  // Current position on the graph
+        for(int i=0; i<HEM_STAIRS_GRAPH_SIZE; ++i)
+        {
+          graph_points[i] = 0;
+        }
+        */
     }
 
     void Controller() {
@@ -169,7 +177,21 @@ public:
           cv_out += cv_rand;
           cv_out = constrain(cv_out, 0, HEMISPHERE_MAX_CV);  // (Not actually necessary if not randomizing start/end)        
         }
-      
+
+        /*
+        // Record graph point
+        if(curr_step != curr_step_pv)
+        {
+          if(++graph_pos >= HEM_STAIRS_GRAPH_SIZE)
+          {
+            graph_pos = 0;
+          }
+
+          // Record CV for this step as its plotted y coordinate
+          graph_points[graph_pos] = ProportionCV(cv_out, 35);
+        }
+        */
+        
         Out(0, cv_out);
     }
 
@@ -245,6 +267,11 @@ private:
     bool step_cv_lock;      // 1 if cv is controlling the current step (show on display)
     bool position_cv_lock;  // 1 if cv is controlling the current step (show on display)
     bool reset_gate;        // Track if currently held in reset (show an icon)
+
+    // Graphing
+    //int8_t graph_pos;  // Current position on the graph
+    //int8_t graph_points[HEM_STAIRS_GRAPH_SIZE];
+
     
     int cursor;     // 0 = steps, 1 = direction, 2 = random
 
@@ -293,6 +320,23 @@ private:
       //gfxInvert(52, 63-h, 9, h);
       gfxInvert(48, 63-h, 9, h);
 
+
+      /*
+      // Graph plot  -- Tested: This ends up looking too inconsistent given different step divisions over the smallish display resolution
+      int8_t p = graph_pos;
+      for(int i=0; i<HEM_STAIRS_GRAPH_SIZE; ++i)
+      {
+        int y = 63-graph_points[p];
+        int x = 64-i*4;
+        gfxLine(x, y, x-4, y);
+        
+        if(--p < 0)
+        {
+          p = HEM_STAIRS_GRAPH_SIZE-1;
+        }
+      }
+      */
+      
       // Cursor
       if(cursor == 0)
       {
