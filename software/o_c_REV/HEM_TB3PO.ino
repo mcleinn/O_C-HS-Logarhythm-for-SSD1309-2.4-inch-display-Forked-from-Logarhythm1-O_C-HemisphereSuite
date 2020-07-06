@@ -24,14 +24,12 @@
 // CV output 1 is pitch, CV output 2 is gates
 // CV pitch out includes fixed-time exponential pitch slides timed as on 303s
 // CV gates are output at 3v for normal notes and 5v for accented notes
-// TODO: Output proper envelopes?
 
 
 #include "braids_quantizer.h"
 #include "braids_quantizer_scales.h"
 #include "OC_scales.h"
 
-//#define ACID_MAX_STEPS 16
 #define ACID_HALF_STEPS 16
 #define ACID_MAX_STEPS 32
 
@@ -47,7 +45,6 @@ class TB_3PO : public HemisphereApplet
 
     void Start() 
     {
-
       manual_reset_flag = 0;
       rand_apply_anim = 0;
       curr_step_semitone = 0;
@@ -63,7 +60,6 @@ class TB_3PO : public HemisphereApplet
       display_semi_quantizer.Configure(OC::Scales::GetScale(OC::Scales::SCALE_SEMI), 0xffff);
       
       density = 12;
-      //density_cv_lock = 0;
       density_encoder_display = 0;
 
       num_steps = 16;
@@ -109,7 +105,6 @@ class TB_3PO : public HemisphereApplet
         step = 0;
       }
 
-
       // Control transpose from cv1 (Very fun to wiggle)
       transpose_note_in = 0;
       if (DetentedIn(0)) 
@@ -117,61 +112,17 @@ class TB_3PO : public HemisphereApplet
         transpose_note_in = In(0) / 128; // 128 ADC steps per semitone
       }
 
-      // Control density from cv1 (Wiggling can build up & break down patterns nicely, especially if seed is locked)
-      /*
-      density_cv_lock = 0;  // Track if density is under cv control
-      if (DetentedIn(1)) 
+      // Offset density from its encoder-set value with cv2 (Wiggling can build up & break down patterns nicely, especially if seed is locked)
       {
-          int num = ProportionCV(In(1), 15);
-          density = constrain(num, 0, 14);
-          density_cv_lock = 1;
-      }
-      */
-      // Test: the encoder sets a center point and CV becomes a bipolar offset
-      {
-
-        /*  Working: +-3v
-        int signal = constrain(In(1), -HEMISPHERE_3V_CV, HEMISPHERE_3V_CV);
-
-        // N.B. Use only positive values for Proportion() here so it is symmetrical (Otherwise negative values will e.g. immediately go to -1 at any value <0v)
-        density_cv = Proportion(abs(signal), HEMISPHERE_3V_CV, 7);
-        if(signal < 0)
-        {
-          density_cv *= -1;  // Restore as negative if necessary
-        }
-        */
-
-
-        /*
-        // -3 to +6v,  giving -7 to +14 added to encoder density value
-        int signal = constrain(In(1), -HEMISPHERE_3V_CV, HEMISPHERE_3V_CV*2);
-        if(signal < 0)
-        {
-          // N.B. Use only positive values for Proportion() here so it is symmetrical (Otherwise negative values will e.g. immediately go to -1 at any value <0v)
-          density_cv = Proportion(abs(signal), HEMISPHERE_3V_CV, 7) * -1;  // restore negative value
-        }
-        else
-        {
-          density_cv = Proportion(signal, HEMISPHERE_3V_CV*2, 14);  // Span 7 values per 3v
-        }
-        */
-        
-        // -2.5v to +5v (HEMISPHERE_MAX_CV),  giving -7 to +14 added to encoder density value
+        // -2.5v to +5v (HEMISPHERE_MAX_CV),  giving about -8 to +15 added to encoder density value
         int signal = constrain(In(1), -HEMISPHERE_3V_CV, HEMISPHERE_MAX_CV);  // Allow negative to go about as far as it will reach
-        if(signal < 0)
+        density_cv = Proportion(abs(signal), HEMISPHERE_MAX_CV, 15); // Apply proportion uniformly to +- voltages as + for symmetry (Avoids rounding differences)
+        if(signal <0)
         {
-          // N.B. Use only positive values for Proportion() here so it is symmetrical (Otherwise negative values will e.g. immediately go to -1 at any value <0v)
-          density_cv = Proportion(abs(signal), HEMISPHERE_MAX_CV/2, 7) * -1;  // restore negative value
+          density_cv *= -1;  // Restore negative sign if -v
         }
-        else
-        {
-          density_cv = Proportion(signal, HEMISPHERE_MAX_CV, 14);  // Span 7 values per 3v
-        }
-
-        //density_cv_lock = density_cv != 0;  // Flag density cv active
         density = static_cast<uint8_t>(constrain(density_encoder + density_cv, 0, 14));
       }
-
       
       // Wait for the ADC since transpose CV is needed
       if (Clock(0)) 
@@ -241,9 +192,6 @@ class TB_3PO : public HemisphereApplet
           curr_gate_cv = 0;//HEMISPHERE_CENTER_CV;
         }
       }
-      
-      // TODO: Apply CV density directly to regenerate gates, if int change?
-      // TODO: Maybe instead, this cv live-controls a gate skip % chance? (And also sets density when regenerating)
 
       // Update slide if needed
       if(curr_pitch_cv != slide_end_cv)
@@ -288,8 +236,7 @@ class TB_3PO : public HemisphereApplet
       // Timesliced generation of new patterns, if triggered
       // Do this last to not interfere with the body of the time for this hemisphere's update
       // (This is speculation without knowing how to best profile performance on this system)
-      update_regeneration();
-     
+      update_regeneration();   
     }
 
     void View() {
@@ -432,7 +379,6 @@ class TB_3PO : public HemisphereApplet
     int lock_seed;  // If 1, the seed won't randomize (and manual editing is enabled)
     
     uint16_t seed;  // The random seed that deterministically builds the sequence
-    //uint16_t current_pattern_seed;  // Track the seed value was used to render the current pattern
     
     int scale;      // Active quantization & generation scale
     uint8_t root;   // Root note
@@ -443,7 +389,6 @@ class TB_3PO : public HemisphereApplet
                       // change from the prior pitch, giving repeating lines (note: octave jumps still apply)
 
     uint8_t current_pattern_density;  // Track what density value was used to generate the current pattern (to detect if regeneration is required)
-    //uint8_t density_cv_lock;  // Tracks if density is under cv control (can't change manually)
 
     // Density controls (Encoder sets center point, CV can apply +-)
     int density_encoder;  // density value contributed by the encoder (center point)
@@ -608,13 +553,6 @@ class TB_3PO : public HemisphereApplet
         oct_ups = 0;
         oct_downs = 0;
       }
-      /*
-      else
-      {
-        // Nudge the existing bitvectors so they're ready to write the next bit
-        oct_ups <<= 1;
-        oct_downs <<= 1;
-      }*/
 
       // Do either the first or second set of steps on this pass
       int max_step = (bFirstHalf ? ACID_HALF_STEPS : ACID_MAX_STEPS);
@@ -657,11 +595,8 @@ class TB_3PO : public HemisphereApplet
         scale_size = 12;
       }
 
-      // Track the seed used to render the current pattern, for change detection
-      //current_pattern_seed = seed;
       current_pattern_scale_size = scale_size;
   	}
-
     
   	// Change pattern density without affecting pitches
   	void apply_density()
@@ -681,17 +616,7 @@ class TB_3PO : public HemisphereApplet
         slides = 0;
         accents = 0;
       }
-      /*else
-      {
-        // Nudge the existing bitvectors so they're ready to write the next bit
-        // (Note: coupled with correcting the order of bitshift on each below, this emulates the bug that advanced the bitvector one extra in the original version)
-        // (For the sake of maintaining patterns)
-        gates <<= 1;
-        slides <<= 1;
-        accents <<= 1;
-      }*/
 
- 		 //for(int i=0; i<ACID_MAX_STEPS; ++i)  
      // Apply to each step
      // Do half of the steps on each pass of this func
      for(int i=0; i< ACID_HALF_STEPS; ++i)
@@ -707,8 +632,7 @@ class TB_3PO : public HemisphereApplet
         // Less probability of consecutive accents
         accents <<= 1;
         latest_accent = rand_bit((latest_accent ? 7 : 16));
-        accents |= latest_accent;
-        
+        accents |= latest_accent;       
   		}
 
       // Track the value of density used to render the pattern (to detect changes)
@@ -755,21 +679,6 @@ class TB_3PO : public HemisphereApplet
        return (oct_downs & (0x01 << step_num));
     }
 
-    /*
-    // This is wholly unnecessary _except_ for the purpose of keeping legacy pattern seeds'
-    // generation of 16-step patterns the same as the new 32-step generation 
-    //(by swapping the first 16 bits generated in each bitvector to align with the first 16 steps again)
-    #define SWAP_2MSB_2LSB(x) ( x = (x << 16) | (x >> 16))
-    void restore_legacy_byte_orders()
-    {
-      SWAP_2MSB_2LSB(gates);
-      SWAP_2MSB_2LSB(slides);
-      SWAP_2MSB_2LSB(accents);
-      SWAP_2MSB_2LSB(oct_ups);
-      SWAP_2MSB_2LSB(oct_downs);
-    }
-    */
-    
   	int get_next_step(int step_num)
   	{
       // loop at the current loop point
@@ -892,8 +801,7 @@ class TB_3PO : public HemisphereApplet
       gfxPos(0, 27);gfxPrint(test);
       gfxPos(0, 37); gfxPrintVoltage(density_cv);
       */
-     
-      
+           
       // Scale and root note select
       xd = (scale < 4) ? 32 : 39;  // Slide/crowd to the left a bit if showing the "USER1"-"USER4" scales, which are uniquely five instead of four characters
       gfxPrint(xd, 27, OC::scale_names_short[scale]);
@@ -916,15 +824,13 @@ class TB_3PO : public HemisphereApplet
         gfxBitmap(41, 54, 8, UP_BTN_ICON);
       }
 
-      // Constrain to the scale
-      //gfxPrint(49, 55, curr_step_semitone);
-
       int keyboard_pitch = curr_step_semitone -4;  // Translate from 0v
       if(keyboard_pitch < 0) keyboard_pitch+=12;  // Deal with c being at the start, not middle of keyboard
       
       gfxPrint(49, 55, keyboard_pitch);
-      
-      //gfxBitmap(1, 55, 8, CV_ICON); gfxPos(12, 55); gfxPrintVoltage(pitches[step]);
+
+      // Debug
+      // gfxBitmap(1, 55, 8, CV_ICON); gfxPos(12, 55); gfxPrintVoltage(pitches[step]);
       
 
       // Draw a TB-303 style octave of a piano keyboard, indicating the playing pitch 

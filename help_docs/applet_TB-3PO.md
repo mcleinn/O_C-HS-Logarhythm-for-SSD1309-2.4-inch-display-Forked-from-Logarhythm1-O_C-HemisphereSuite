@@ -3,7 +3,7 @@ TB-3PO is a TB-303 style, pitch CV and gate pattern generator robot, capable of 
 Controls
 
 - Digital Ins: 1:Clock,  2:Reset / Regenerate
-- CV Ins:   1:Density,  2:Transpose
+- CV Ins:   1:Transpose, 2:Density (Center point)
 - CV Outs:  A:V/Oct CV + glide, B:Gate (3v normal, 5v Accent)
 - Encoder: Sets the seed as unlocked or locked, edits unlocked seeds, sets note/pitch density, quantization scale, root note, and number of steps in the pattern.
 
@@ -35,6 +35,11 @@ A bi-directional 'density' control specifies how many of the pattern's steps are
 
 Density changes are applied on every clock, but if the seed is locked, specific values of density will give the same subset of patterns. In this way you can break down from busy to sparse and back.
 
+### Density CV
+When the cursor is on Density, it can be changed directly by turning the encoder. CV Input 2 applies offsets to this centerpoint value. CV is bipolar, with every +-2.5 volts corresponding to +-7 density steps. Due to the O&C's CV input range of approximately -3v to +6v, this means that there is an effective CV range of about -8 to +15 density values from the encoder-set center point.
+Turning the encoder while nonzero CV is applied will show the encoder's value alongside a "knob" icon momentarily, so the offset can be edited precisely even while CV is modulating it.
+Note that if the encoder value is set to -7 then the full range of density values is available by applying CV 0-5v.
+
 ## Scale
 Sets the quantization scale to use for the pattern, and makes only those notes available to the pattern generator. It affects the current output CV immediately and applies to the pattern on the next clock.
 
@@ -50,6 +55,8 @@ Like on the TB-303, each step can have Gate, Accent, Glide, +octave or -octave s
 ## Visualization
 - The heart icon will beat whenever the pattern is reset
 - The seed die icon will hop whenever a new seed is randomly picked
+- A CV icon next to density indicates that a +- offset is being applied to the encoder-set density value.
+- A Knob icon next to density indicates that the encoder-set density value is being shown momentarily.
 - A single octave keyboard shows the current playing step's pitch, quantized to semitones
 - Icons to the keyboard's right:
   - "!" Indicates that the current step has an Accent and the gate cv will be 5v instead of 3v
