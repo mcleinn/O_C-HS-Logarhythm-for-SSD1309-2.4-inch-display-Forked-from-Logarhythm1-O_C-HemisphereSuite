@@ -78,7 +78,7 @@ class TB_3PO : public HemisphereApplet
       transpose_note_in = 0;    
 
       lock_seed = 0;
-      seed = random(0, 65535); // 16 bits
+      reseed();
       regenerate_all();
 
     }
@@ -96,7 +96,7 @@ class TB_3PO : public HemisphereApplet
         // Otherwise, the user has locked it, so leave it as set
         if(lock_seed == 0)
         {
-          seed = random(0, 65535); // 16 bits
+          reseed();
         }
 
         // Apply the seed to regenerate the pattern`
@@ -487,8 +487,13 @@ class TB_3PO : public HemisphereApplet
       int32_t cv_note = quantizer.Lookup( constrain(quant_note, 0, 127));
       display_semi_quantizer.Process(cv_note, 0, 0);  // Use root == 0 to start at c
       return display_semi_quantizer.GetLatestNoteNumber() % 12;
-    }
+    } 
 
+    void reseed()
+    {
+      randomSeed(micros());
+      seed = random(0, 65535); // 16 bits
+    }
     
   	// Trigger generating the sequence deterministically using the seed (over the next couple of Controller() calls)
   	void regenerate_all()
