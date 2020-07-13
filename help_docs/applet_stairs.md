@@ -13,10 +13,10 @@ Controls
 Controls the total number of steps taken from 0 to 5v or 5v to 0 volts.
 
 ## Direction
-Sets the direction the voltage changes in on each step: up, up+down, or down. This effectively gives up ramp, triangle, and down ramp shapes. The step count is effectively doubled in up+down mode.
+Sets the direction the voltage changes in on each step: up, up+down, or down. This effectively gives up ramp, triangle, and down ramp shapes. The step count is effectively doubled in up+down mode, except that the bottom and top steps are not repeated when changing directions.
 
 ## Random
-Turning random ON makes each step's voltage deviate a little bit from where it would be, but the overall direction of movement is preserved
+Turning random ON makes each step's voltage deviate a little bit from where it would be, but the overall direction of movement is preserved.
 
 
 

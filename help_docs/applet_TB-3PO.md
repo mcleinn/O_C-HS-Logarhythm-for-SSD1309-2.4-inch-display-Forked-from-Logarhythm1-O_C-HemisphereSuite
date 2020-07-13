@@ -47,7 +47,7 @@ Sets the quantization scale to use for the pattern, and makes only those notes a
 Sets the root note from C to B, transposing the entire pattern.
 
 ## Pattern Length
-Sets the length of the pattern from 1-16 steps. This doesn't alter the pattern apart from setting the loop point.
+Sets the length of the pattern from 1-32 steps. This doesn't alter the pattern apart from setting the loop point.
 
 ## Step Settings
 Like on the TB-303, each step can have Gate, Accent, Glide, +octave or -octave set on it. TB-3PO chooses these values randomly based on the seed and some 303-like rules. Gates emulate the TB-303 by going high for 50% of the detected clock rate, unless they have slide set. In this case they stay high through the next step, when an exponential, fixed-time glide to the next step's pitch is engaged. Accent steps output the gate at 5v instead of 3v, which may be useful with a secondary VCA to punch them a bit.
