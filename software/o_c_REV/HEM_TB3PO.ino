@@ -115,7 +115,8 @@ class TB_3PO : public HemisphereApplet
       // Offset density from its encoder-set value with cv2 (Wiggling can build up & break down patterns nicely, especially if seed is locked)
       {
         // -2.5v to +5v (HEMISPHERE_MAX_CV),  giving about -8 to +15 added to encoder density value
-        int signal = constrain(In(1), -HEMISPHERE_3V_CV, HEMISPHERE_MAX_CV);  // Allow negative to go about as far as it will reach
+        // Note: DetentedIn is used to cut out noise near 0, even though it's being quantized to int below (primarily to make the cv icon work better)
+        int signal = constrain(DetentedIn(1), -HEMISPHERE_3V_CV, HEMISPHERE_MAX_CV);  // Allow negative to go about as far as it will reach
         density_cv = Proportion(abs(signal), HEMISPHERE_MAX_CV, 15); // Apply proportion uniformly to +- voltages as + for symmetry (Avoids rounding differences)
         if(signal <0)
         {
@@ -382,6 +383,7 @@ class TB_3PO : public HemisphereApplet
     
     int scale;      // Active quantization & generation scale
     uint8_t root;   // Root note
+    uint8_t octave_offset; // Manual octave offset (based on size of current scale, added to root note)
 
     uint8_t density;  // The density parameter controls a couple of things at once. Its 0-14 value is mapped to -7..+7 range
                       // The larger the magnitude from zero in either direction, the more dense the note patterns are (fewer rests)
