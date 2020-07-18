@@ -50,6 +50,8 @@ class TB_3PO : public HemisphereApplet
       curr_step_semitone = 0;
       
       root = 0;
+      octave_offset = 0;
+      
       // Init the quantizer for selecting pitches / CVs from
       scale = 29;  // GUNA scale sounds cool   //OC::Scales::SCALE_SEMI; // semi sounds pretty bunk
       quantizer.Init();
@@ -314,7 +316,26 @@ class TB_3PO : public HemisphereApplet
       else if(cursor == 7)
       {
         // Root note selection
-        root = constrain(root + direction, 0, 11);
+
+        // No oct version
+        //root = constrain(root + direction, 0, 11);
+
+        // Add in handling for octave settings without affecting root's range
+        int r = root + direction;
+        if(direction > 0 && r > 11 && octave_offset < 3)
+        {
+          ++octave_offset;  // Go up to next octave
+          r = 0; // Roll around root note
+        }
+        else if(direction < 0 && r < 0 && octave_offset > -3)
+        {
+          --octave_offset;
+          r = 11; // Roll around root note
+        }
+
+        // Limit root value
+        root = constrain(r, 0, 11);
+
       }
       else
       {
@@ -383,7 +404,7 @@ class TB_3PO : public HemisphereApplet
     
     int scale;      // Active quantization & generation scale
     uint8_t root;   // Root note
-    uint8_t octave_offset; // Manual octave offset (based on size of current scale, added to root note)
+    int8_t octave_offset; // Manual octave offset (based on size of current scale, added to root note)
 
     uint8_t density;  // The density parameter controls a couple of things at once. Its 0-14 value is mapped to -7..+7 range
                       // The larger the magnitude from zero in either direction, the more dense the note patterns are (fewer rests)
@@ -440,6 +461,9 @@ class TB_3PO : public HemisphereApplet
       //int base_note_for_scale = 64;  // 64 should be 0v baseline
       
       int quant_note = 64 + notes[step_num] +  root + transpose_note_in;
+
+      // Apply the manual octave offset
+      quant_note += octave_offset * scale_size;
 
       // Transpose by one octave up or down if flagged to (note this is one full span of whatever scale is active to give doubling octave behavior)
       if(step_is_oct_up(step_num))
@@ -807,8 +831,13 @@ class TB_3PO : public HemisphereApplet
       // Scale and root note select
       xd = (scale < 4) ? 32 : 39;  // Slide/crowd to the left a bit if showing the "USER1"-"USER4" scales, which are uniquely five instead of four characters
       gfxPrint(xd, 27, OC::scale_names_short[scale]);
-      gfxPrint(45, 36, OC::Strings::note_names_unpadded[root]);
- 
+
+      gfxPrint((octave_offset == 0 ? 45 : 39), 36, OC::Strings::note_names_unpadded[root]);
+      if(octave_offset != 0)
+      {
+        gfxPrint(51, 36, octave_offset);
+      }
+      
       //gfxPrint(" (");gfxPrint(density);gfxPrint(")");  // Debug print of actual density value
   
       // Current / total steps
@@ -899,7 +928,7 @@ class TB_3PO : public HemisphereApplet
       }
       else if(cursor == 7)
       {
-       gfxCursor(44, 43, 14);  // root note
+       gfxCursor(42, 43, 16);  // root note
       }
       else if(cursor == 8)
       {
