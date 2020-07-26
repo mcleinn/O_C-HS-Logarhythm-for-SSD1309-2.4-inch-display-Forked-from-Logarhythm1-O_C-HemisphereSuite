@@ -44,7 +44,7 @@ Note that if the encoder value is set to -7 then the full range of density value
 Sets the quantization scale to use for the pattern, and makes only those notes available to the pattern generator. It affects the current output CV immediately and applies to the pattern on the next clock.
 
 ## Root Note
-Sets the root note from C to B, transposing the entire pattern.
+Sets the root note from C to B, transposing the entire pattern. The octave can also be changed by scrolling beyond these notes. Due to space restrictions, the root note is saved but its octave is not.
 
 ## Pattern Length
 Sets the length of the pattern from 1-32 steps. This doesn't alter the pattern apart from setting the loop point.
