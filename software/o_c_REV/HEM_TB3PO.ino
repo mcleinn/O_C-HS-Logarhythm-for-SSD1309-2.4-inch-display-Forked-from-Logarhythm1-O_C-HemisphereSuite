@@ -25,6 +25,9 @@
 // CV pitch out includes fixed-time exponential pitch slides timed as on 303s
 // CV gates are output at 3v for normal notes and 5v for accented notes
 
+// Contributions:
+// Thanks to Github/Muffwiggler user Qiemem for adding reseed(), to break the small cycle of available seed values that was occurring in practice
+
 
 #include "braids_quantizer.h"
 #include "braids_quantizer_scales.h"
