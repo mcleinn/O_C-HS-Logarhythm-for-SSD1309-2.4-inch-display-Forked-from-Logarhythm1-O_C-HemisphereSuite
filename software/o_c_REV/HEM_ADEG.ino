@@ -53,7 +53,11 @@ public:
             if (phase == 1) target = int2simfloat(HEMISPHERE_MAX_CV); // Rise to max for attack
             if (phase == 2) target = 0; // Fall to zero for decay
 
-            if (signal != target) {
+
+            // Logarhythm: Can skip this check entirely since signal should always be changing if phase != 0 (checked above)
+            //if (signal != target)  {   // Original: can get locked up (stuck in phase 1 with signal==target) from audio rate clock input
+            //if (signal != target || (phase == 1 && signal == target) ) {  // Logarhythm: adding 2nd check fixes audio-rate clock lockup
+            {
                 int segment = phase == 1
                     ? effective_attack + Proportion(DetentedIn(0), HEMISPHERE_MAX_CV, HEM_ADEG_MAX_VALUE)
                     : effective_decay + Proportion(DetentedIn(1), HEMISPHERE_MAX_CV, HEM_ADEG_MAX_VALUE);
@@ -75,6 +79,11 @@ public:
                 }
                 signal += delta;
 
+                // DEBUG
+                debug_target = target;
+                debug_ticks_to_remain = ticks_to_remaining;
+                debug_delta = delta;
+                
                 if (simfloat2int(signal) >= HEMISPHERE_MAX_CV && phase == 1) phase = 2;
 
                 // Check for EOC
@@ -143,6 +152,12 @@ private:
     int attack; // Time to reach signal level if signal < 5V
     int decay; // Time to reach signal level if signal > 0V
 
+
+// DEBUG
+int debug_ticks_to_remain;
+simfloat debug_delta ;
+simfloat debug_target;
+
     void DrawIndicator() {
         int a_x = Proportion(attack, HEM_ADEG_MAX_VALUE, 31);
         int d_x = a_x + Proportion(decay, HEM_ADEG_MAX_VALUE, 31);
@@ -163,6 +178,14 @@ private:
             gfxPrint(15, 43, last_ms_value);
             gfxPrint("ms");
         }
+
+        // DEBUG
+        gfxPrint(0, 23, phase);    // Stuck: 1
+        gfxPrint(10, 23, debug_ticks_to_remain);  // Stuck: 0
+        gfxPrint(0, 33, signal);   // Stuck: 125829120
+        gfxPrint(0, 43, debug_target);   // Stuck: 125829120  (This is int2simfloat(HEMISPHERE_MAX_CV) )
+        gfxPrint(0, 53, debug_delta);  // Stuck: 25674
+        
     }
 };
 
