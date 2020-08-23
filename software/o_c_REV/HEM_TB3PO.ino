@@ -114,7 +114,31 @@ class TB_3PO : public HemisphereApplet
       transpose_note_in = 0;
       if (DetentedIn(0)) 
       {
-        transpose_note_in = In(0) / 128; // 128 ADC steps per semitone
+        // Original: 1v == 12 scale steps
+        // Note: This appears to frequently result in coming up short on some notes when using a cv keyboard (e.g. c# might be c) (prefer interpreting this via a windowed quantizer?)
+        //transpose_note_in = In(0) / 128; // 128 ADC steps per semitone
+
+        // Test: Try scaling so 1v is a musical octave (equal to the number of steps in the scale) -- should be more musically useful
+        // This isn't quite right for some xenharmonic stuff that extends beyond an octave probably, but will anybody listening know?
+        //transpose_note_in = (In(0) / (12<<7)) * scale_size;  // Note: Octave shift only!
+
+
+        // Test: Try treating the input CV as an offset in terms of the current scale, rather than always 1/12v == 1 scale note difference
+        // This should make using a cv keyboard or sequencer for transpose work as expected
+
+        // Process: pitch, root, transpose (ALL CVs)
+        //quantizer.Process(In(0), 0, 0);  // Use root == 0 to start at c  TODO: Change to current root? (internally this is subtracted from pitch cv)
+        //transpose_note_in = quantizer.GetLatestNoteNumber();//-64 + 2*scale_size;
+
+        // 40 is the zero point (at 0v CV) for a 12 note scale with root ==0
+        //transpose_note_in = quantizer.GetLatestNoteNumber() - (40 - 2*(scale_size - 12));
+
+
+// This will accuarately get notes from an imperfect cv keyboard in semitones
+        display_semi_quantizer.Process(In(0), 0, 0);  // Use root == 0 to start at c
+        transpose_note_in = display_semi_quantizer.GetLatestNoteNumber() - 64;
+        
+        
       }
 
       // Offset density from its encoder-set value with cv2 (Wiggling can build up & break down patterns nicely, especially if seed is locked)
@@ -315,6 +339,13 @@ class TB_3PO : public HemisphereApplet
         if (scale < 0) scale = OC::Scales::NUM_SCALES - 1;
         // Apply to the quantizer
         set_quantizer_scale(scale);
+
+// New: Constrain root to scale size (leave oct offset where it is)
+        int max_root = scale_size > 12 ? 12 : scale_size;
+        if(max_root > 0)
+        {
+          root = constrain(root, 0, max_root-1);
+        }
       }
       else if(cursor == 7)
       {
@@ -325,7 +356,11 @@ class TB_3PO : public HemisphereApplet
 
         // Add in handling for octave settings without affecting root's range
         int r = root + direction;
-        if(direction > 0 && r > 11 && octave_offset < 3)
+
+        int max_root = scale_size > 12 ? 12 : scale_size;
+        
+        //if(direction > 0 && r > 11 && octave_offset < 3)
+        if(direction > 0 && r >= max_root  && octave_offset < 3)
         {
           ++octave_offset;  // Go up to next octave
           r = 0; // Roll around root note
@@ -333,11 +368,14 @@ class TB_3PO : public HemisphereApplet
         else if(direction < 0 && r < 0 && octave_offset > -3)
         {
           --octave_offset;
-          r = 11; // Roll around root note
+
+          r = max_root-1;
+          //r = 11; // Roll around root note
         }
 
         // Limit root value
-        root = constrain(r, 0, 11);
+        //root = constrain(r, 0, 11);
+        root = constrain(r, 0, max_root-1);
 
       }
       else
@@ -462,11 +500,16 @@ class TB_3PO : public HemisphereApplet
     {
       //int quant_note = notes[step_num] + 64 + root + transpose_note_in;
       //int base_note_for_scale = 64;  // 64 should be 0v baseline
-      
-      int quant_note = 64 + notes[step_num] +  root + transpose_note_in;
 
-      // Apply the manual octave offset
-      quant_note += octave_offset * scale_size;
+
+      // Original: Transpose pre-quantize
+      //int quant_note = 64 + int(notes[step_num]) +  int(root) + int(transpose_note_in);
+
+// TEST: Transpose post-quantize, to allow semitone transpose?
+      int quant_note = 64 + int(notes[step_num]) +  int(root);
+
+      // Apply the manual octave offset   // BUG: doesn't work at -1 for e.g 3 pitch scales (due to root being outside scale_size)
+      quant_note += (int(octave_offset) * int(scale_size));
 
       // Transpose by one octave up or down if flagged to (note this is one full span of whatever scale is active to give doubling octave behavior)
       if(step_is_oct_up(step_num))
@@ -479,7 +522,14 @@ class TB_3PO : public HemisphereApplet
       }
 
       int out_note = constrain(quant_note, 0, 127);
-      return quantizer.Lookup( out_note );
+
+// TEST: Transpose post-quantize (TODO: Could track semitone-quantized cv to add rather than transpose as a note num)
+      int xpose_cv = display_semi_quantizer.Lookup(transpose_note_in + 64);
+      int pitch_cv = quantizer.Lookup(out_note) + xpose_cv;
+      return pitch_cv;
+
+// Original: Output quantized, pre-transposed
+      //return quantizer.Lookup( out_note );
       //return quantizer.Lookup( 64 );  // note 64 is definitely 0v=c4 if output directly, on ALL scales
     }
 
@@ -865,8 +915,13 @@ class TB_3PO : public HemisphereApplet
 
       int keyboard_pitch = curr_step_semitone -4;  // Translate from 0v
       if(keyboard_pitch < 0) keyboard_pitch+=12;  // Deal with c being at the start, not middle of keyboard
+
+
+// TEMP
+//gfxPrint(40, 55, scale_size);
+gfxPrint(40, 55, transpose_note_in);  // N.B. if pushed further right, this can crash on hemi2 when it'd print offscreen
       
-      gfxPrint(49, 55, keyboard_pitch);
+//      gfxPrint(49, 55, keyboard_pitch);
 
       // Debug
       // gfxBitmap(1, 55, 8, CV_ICON); gfxPos(12, 55); gfxPrintVoltage(pitches[step]);
