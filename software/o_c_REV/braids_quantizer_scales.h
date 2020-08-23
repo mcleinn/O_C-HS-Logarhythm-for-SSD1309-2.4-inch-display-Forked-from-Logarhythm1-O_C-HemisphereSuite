@@ -30,10 +30,8 @@
 #define BRAIDS_QUANTIZER_SCALES_H_
 
 #include "braids_quantizer.h"
+#include "OC_options.h"  // Logarhythm mod compile flag for new
 
-
-// Define this to include custom scales for Hemispheres Logarhythm Mod (optional if porting individual applets)
-#define HEM_LOGARHYTHM_MOD_SCALES
 
 namespace braids {
 
