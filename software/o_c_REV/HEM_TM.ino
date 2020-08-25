@@ -30,7 +30,11 @@
 #include "braids_quantizer.h"
 #include "braids_quantizer_scales.h"
 #include "OC_scales.h"
-#define TM_MAX_SCALE 63
+
+// Logarhythm mod: Allow all scales, even though only the first 64 serialize correctly
+//#define TM_MAX_SCALE 63
+#define TM_MAX_SCALE OC::Scales::NUM_SCALES
+
 #define TM_MIN_LENGTH 2
 #define TM_MAX_LENGTH 16
 
@@ -126,7 +130,11 @@ public:
         Pack(data, PackLocation {0,16}, reg);
         Pack(data, PackLocation {16,7}, p);
         Pack(data, PackLocation {23,4}, length - 1);
-        Pack(data, PackLocation {27,6}, scale);
+
+        // Logarhythm mod: Since scale can exceed 6 bits now, clamp mathematically rather than surprising the user with a roll over of larger numbers
+        //Pack(data, PackLocation {27,6}, scale);
+        Pack(data, PackLocation {27,6}, constrain(scale, 0, 63));
+        
         return data;
     }
 
@@ -156,7 +164,8 @@ private:
     // Settings
     uint16_t reg; // 16-bit sequence register
     int p; // Probability of bit 15 changing on each cycle
-    int8_t scale; // Scale used for quantized output
+    //int8_t scale; // Scale used for quantized output
+    int scale;  // Logarhythm: hold larger values
     //int tmp = 0;
     int quant_range;  // APD
 
