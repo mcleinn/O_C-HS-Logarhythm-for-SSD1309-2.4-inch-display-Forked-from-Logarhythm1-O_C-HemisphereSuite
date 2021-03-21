@@ -73,7 +73,7 @@ public:
         gfxHeader("Setup / About");
         gfxPrint(0, 15, "Hemisphere Suite");
         gfxPrint(0, 25, OC_VERSION);
-        gfxPrint(0, 35, "beigemaze.com/hs");
+        gfxPrint(0, 35, "Logarhythm Mods");
         gfxPrint(0, 55, "[CALIBRATE]   [RESET]");
 
 #ifdef BUCHLA_4U

@@ -22,6 +22,8 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
+#ifdef ENABLE_APP_DARKEST_TIMELINE
+
 #include "util/util_settings.h"
 #include "OC_DAC.h"
 #include "braids_quantizer.h"
@@ -589,3 +591,5 @@ void TheDarkestTimeline_handleEncoderEvent(const UI::Event &event) {
     // Right encoder turned
     if (event.control == OC::CONTROL_ENCODER_R) TheDarkestTimeline_instance.OnRightEncoderMove(event.value);
 }
+
+#endif

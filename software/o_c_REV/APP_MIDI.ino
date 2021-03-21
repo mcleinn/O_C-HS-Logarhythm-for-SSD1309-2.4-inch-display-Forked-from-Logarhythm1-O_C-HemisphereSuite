@@ -22,6 +22,9 @@
 
 // See https://www.pjrc.com/teensy/td_midi.html
 
+
+#ifdef ENABLE_APP_CAPTAIN_MIDI
+
 #include "HSApplication.h"
 #include "HSMIDI.h"
 
@@ -302,7 +305,7 @@ public:
         }
     }
 
-    /* When the app is suspended, it sends out a system exclusive dump, generated here */
+    // When the app is suspended, it sends out a system exclusive dump, generated here
     void OnSendSysEx() {
         // Teensy will receive 60-byte sysex files, so there's room for one and only one
         // Setup. The currently-selected Setup will be the one we're sending. That's 40
@@ -355,7 +358,7 @@ public:
        else cursor.toggle_editing();
    }
 
-   /* Perform a copy or sysex dump */
+   // Perform a copy or sysex dump
    void CopySetup(int target, int source) {
        if (source == target) {
            OnSendSysEx();
@@ -372,9 +375,9 @@ public:
        copy_mode = 0;
    }
 
-   /* If the changed value is a high or low range, make sure that the high range doesn't go
-    * below the low range, or that the low range doesn't go above the high range
-    */
+   // If the changed value is a high or low range, make sure that the high range doesn't go
+   // below the low range, or that the low range doesn't go above the high range
+    
    void ConstrainRangeValue(int ix) {
        int page = ix / 8; // Page within a Setup
        if (page == 4 && values_[ix] < values_[ix - 8]) values_[ix] = values_[ix - 8];
@@ -906,4 +909,4 @@ void MIDI_handleEncoderEvent(const UI::Event &event) {
     }
 }
 
-
+#endif

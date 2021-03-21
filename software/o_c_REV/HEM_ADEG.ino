@@ -53,7 +53,10 @@ public:
             if (phase == 1) target = int2simfloat(HEMISPHERE_MAX_CV); // Rise to max for attack
             if (phase == 2) target = 0; // Fall to zero for decay
 
-            if (signal != target) {
+            // Logarhythm: Bug fix: Removing this check prevents audio-rate gates from getting this stuck in its attack phase
+            // due to already being at its target. It should be fine to skip this since the phases will normally advance back to 0.
+            //if (signal != target)   
+            {
                 int segment = phase == 1
                     ? effective_attack + Proportion(DetentedIn(0), HEMISPHERE_MAX_CV, HEM_ADEG_MAX_VALUE)
                     : effective_decay + Proportion(DetentedIn(1), HEMISPHERE_MAX_CV, HEM_ADEG_MAX_VALUE);

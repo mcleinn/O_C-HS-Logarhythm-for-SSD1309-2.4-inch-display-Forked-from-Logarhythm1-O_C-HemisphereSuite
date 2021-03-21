@@ -20,6 +20,8 @@
 //
 // CV-controllable Pong game
 
+#ifdef ENABLE_APP_PONG
+
 #include "OC_DAC.h"
 #include "OC_ADC.h"
 #include "OC_digital_inputs.h"
@@ -367,3 +369,5 @@ void PONGGAME_handleEncoderEvent(const UI::Event &event) {
 	if (event.value > 0) pong_instance.MovePaddleDown();
 	pong_instance.ResetPaddle();
 }
+
+#endif
